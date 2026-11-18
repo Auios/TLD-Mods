@@ -51,6 +51,30 @@ namespace TerrainChoice
             catch (Exception e) { Plugin.Log.LogWarning("RevaMP link: " + e.Message); }
         }
 
+        private static Func<roadGenScript, roadGenScript> _realOf;
+        private static bool _realOfLooked;
+
+        /// RevaMP's PureRoads (0.69.1, on by default) gives every road generator a never-drawn shadow, and buildings, the
+        /// start house too, take their road from that shadow. The live generator a shadow stands for, else null; the old
+        /// road must be in the shadow as well, or the start house goes beside the beta's road, hundreds of metres off.
+        public static roadGenScript RealOfShadow(roadGenScript g)
+        {
+            if (!_realOfLooked)
+            {
+                _realOfLooked = true;
+                try
+                {
+                    var t = AccessTools.TypeByName("TLDRevamp.Fixes.PureRoads");
+                    var m = t != null ? AccessTools.Method(t, "RealOf", new[] { typeof(roadGenScript) }) : null;
+                    if (m != null) _realOf = (Func<roadGenScript, roadGenScript>)Delegate.CreateDelegate(typeof(Func<roadGenScript, roadGenScript>), m);
+                    else if (t != null) Plugin.Log.LogWarning("RevaMP's PureRoads has no RealOf: old-terrain buildings may align to the beta's road.");
+                }
+                catch (Exception e) { Plugin.Log.LogWarning("RevaMP PureRoads link: " + e.Message); }
+            }
+            if (_realOf == null || g == null) return null;
+            try { return _realOf(g); } catch { return null; }
+        }
+
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void RegisterWithRevamp()
         {

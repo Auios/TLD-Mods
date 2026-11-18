@@ -17,7 +17,7 @@ namespace TerrainChoice
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "anonymoustld.terrainchoice";
-        public const string Version = "0.4.1";
+        public const string Version = "0.4.2";
 
         internal static ManualLogSource Log;
         internal static ConfigEntry<TerrainMode> NewGameTerrain;

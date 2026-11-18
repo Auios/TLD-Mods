@@ -1,4 +1,4 @@
-TerrainChoice 0.4.1 - pick the terrain when you start or host a new game (The Long Drive BETA branch only)
+TerrainChoice 0.4.2 - pick the terrain when you start or host a new game (The Long Drive BETA branch only)
 
 Beta = Steam branch "beta", V2024.11.26b_test (build 16539689). It does nothing useful on the public game.
 
@@ -22,7 +22,7 @@ WHAT IT DOES
 
 EVERY PLAYER NEEDS IT
   - With RevaMP, the mod registers with RevaMP's mod check:
-      - a joiner without it is refused with "install TerrainChoice 0.4.1";
+      - a joiner without it is refused with "install TerrainChoice 0.4.2";
       - a joiner WITH it can't join a host WITHOUT it ("remove terrainchoice").
   - With the game's own multiplayer there is no check: a joiner without the mod would get crossroads in a main-road-only world.
 
@@ -51,6 +51,12 @@ OLD TERRAIN: WHAT IS AND ISN'T OLD
     - behind the start the old game had nothing; here a road with buildings runs the other way too, by the same rules;
     - the old mansion is the beta's mansion; the old village (falu01) never appeared on the old road either.
   A far save loads a little slower the first time: the old road is computed from the start up to where you are.
+
+CHANGES
+  0.4.2  With TLD RevaMP 0.69.1 builds that find buildings' roads from the seed (PureRoads), the start house and
+         other road-aligned buildings followed the beta's road, not the old one: an old-terrain world could start
+         hundreds of metres from the road. The old road now goes into RevaMP's road lookup too: the start house
+         is beside the road again (45 m). Worlds started with 0.4.1 keep their start where it is.
 
 BUILD
   dotnet build -c Release   (against the game in TLD_DIR, else the default Steam library; or -p:GameDir=...)

@@ -223,6 +223,9 @@ namespace TerrainChoice
         {
             if (_path == null) return false;
             foreach (var o in _owners) if (ReferenceEquals(o, g)) return true;
+            // RevaMP's shadow of one of ours (PureRoads): buildings and the start house find their road there
+            var real = RevampLink.RealOfShadow(g);
+            if (real != null) foreach (var o in _owners) if (ReferenceEquals(o, real)) return true;
             return false;
         }
 
