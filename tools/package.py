@@ -45,16 +45,17 @@ def main():
     data = dll.read_bytes()
     hits = private_hits(data)
     if hits: sys.exit(f"private string in {dll}:\n  " + "\n  ".join(hits[:5]))
-    src = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in (ROOT / "mods" / m).glob("*.cs"))
-    v = re.search(r'Version\s*=\s*"(\d+\.\d+\.\d+)"', src) or re.search(r'BepInPlugin\([^)]*"(\d+\.\d+\.\d+)"\s*\)', src)
-    if not v: sys.exit(f"no version found in mods/{m}/*.cs")
-    ver = v.group(1)
+    src = (ROOT / "mods" / m / "Plugin.cs").read_text(encoding="utf-8", errors="replace")
+    v = re.search(r'Version\s*=\s*"(\d+\.\d+\.\d+)"', src)
+    g = re.search(r'Guid\s*=\s*"([^"]+)"', src) or re.search(r'BepInPlugin\(\s*"([^"]+)"', src)
+    if not v or not g: sys.exit(f"no plugin GUID or version found in mods/{m}/Plugin.cs")
+    ver, guid = v.group(1), g.group(1)
     out = ROOT / "dist" / f"{m}-{ver}.zip"
     out.parent.mkdir(exist_ok=True)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         z.writestr(f"BepInEx/plugins/{m}/{m}.dll", data)
     print(f"{out.relative_to(ROOT)} ({out.stat().st_size} bytes)")
-    print(f"approved: {hashlib.sha256(data).hexdigest()} <catalog id> {ver}")
+    print(f"approved: {hashlib.sha256(data).hexdigest()} {guid} {ver}")
 
 
 if __name__ == "__main__":
