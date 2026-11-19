@@ -1,2 +1,7 @@
 * text=auto
 *.png binary
+# Shell scripts keep LF on every checkout (TvBrowser/Host/*.sh run under bash)
+*.sh text eol=lf
+# the TV Browser's prebuilt browser host
+mods/TvBrowser/Host/linux-x64/* binary
+mods/TvBrowser/Host/windows-x64/* binary

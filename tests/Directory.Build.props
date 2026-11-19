@@ -1,0 +1,8 @@
+<Project>
+  <!-- The TV Browser tests compile RevaMP's Records.cs (the multiplayer API's record format) from a TLD-RevaMP checkout:
+       -p:RevampDir=..., else the TLD_REVAMP_DIR environment variable, else TLD-RevaMP next to this repository. -->
+  <PropertyGroup>
+    <RevampDir Condition="'$(RevampDir)' == ''">$(TLD_REVAMP_DIR)</RevampDir>
+    <RevampDir Condition="'$(RevampDir)' == ''">$(MSBuildThisFileDirectory)../../TLD-RevaMP</RevampDir>
+  </PropertyGroup>
+</Project>

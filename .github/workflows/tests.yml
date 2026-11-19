@@ -1,0 +1,44 @@
+# The mods' unit tests (tests/*.csproj): they need no game. The TV Browser tests compile RevaMP's record format
+# (src/TLDRevamp.Multiplayer/Records.cs), so RevaMP's dev branch is checked out next to this repository.
+name: tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: TLD-RevaMP/TLD-RevaMP
+          ref: dev
+          path: revamp
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Every unit project
+        shell: bash
+        env:
+          TLD_REVAMP_DIR: ${{ github.workspace }}/revamp
+        run: |
+          failed=0
+          for project in tests/*.csproj; do
+            name=$(basename "$project" .csproj)
+            echo "::group::$name"
+            if dotnet run --project "$project" --configuration Release --disable-build-servers \
+                --property:BaseIntermediateOutputPath="obj/$name/" --property:OutputPath="bin/$name/"; then
+              echo "- PASS $name" | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- FAIL $name" | tee -a "$GITHUB_STEP_SUMMARY"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$failed"
