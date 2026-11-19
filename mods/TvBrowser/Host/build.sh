@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds tvbrowser-host (Linux) and the accessibility stand-ins from CEF's "minimal" distribution:
-#   src/Mods/TvBrowser/Host/build.sh <cef_binary_..._linux64_minimal folder> [out folder]
+#   mods/TvBrowser/Host/build.sh <cef_binary_..._linux64_minimal folder> [out folder]
 # The mod carries the result (Host/linux-x64, the default out folder) inside TvBrowser.dll and writes it next to CEF's
 # files when it starts the browser.
 # The CEF version must be the one Browser.cs pins (Browser.CefLinux): the program and libcef.so check each other's API.

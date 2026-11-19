@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds tvbrowser-host.dll (Windows) from CEF's "minimal" Windows distribution, with mingw-w64 on Linux:
-#   src/Mods/TvBrowser/Host/build-windows.sh <cef_binary_..._windows64_minimal folder> [out folder]
+#   mods/TvBrowser/Host/build-windows.sh <cef_binary_..._windows64_minimal folder> [out folder]
 # The program is CEF's own bootstrap.exe (in the same archive; the mod names it tvbrowser-host.exe): it sets up
 # Chromium's sandbox, then loads the DLL of its own name and calls its RunWinMain. The mod carries the DLL (Host/windows-x64,
 # the default out folder) inside TvBrowser.dll and writes it next to CEF's files when it starts the browser.

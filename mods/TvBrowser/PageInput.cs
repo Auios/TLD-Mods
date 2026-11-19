@@ -16,7 +16,7 @@ namespace TvBrowser
     /// A command (Command) as the DevTools calls that put it into a page: key presses with their text, so the page
     /// sees keydown, keypress and input as from a real keyboard; the mouse as a real one at the pointer (in CSS pixels:
     /// the picture's pixels over the zoom); the wheel where the pointer is; back and forward through the page's own
-    /// history. Pure: tools/unit/TvBrowserCoreTest.cs checks it, and tools/unit/TvBrowserPageTest (with a real
+    /// history. Pure: tests/TvBrowserCoreTest.cs checks it, and tests/TvBrowserPageTest (with a real
     /// headless Chromium) checks what the page makes of it.
     public static class PageInput
     {

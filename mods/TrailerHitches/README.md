@@ -155,12 +155,12 @@ before/after tilt results are available; the receiver placement fix is still unr
 
 ## Build
 
-From the TLD RevaMP repository root:
+From the TLD-Mods repository root (the game folder: `-p:GameDir`, see the [README](../../README.md#building)):
 
 ```sh
-dotnet build src/Mods/TrailerHitches/TrailerHitches.csproj -c Release --disable-build-servers
+dotnet build mods/TrailerHitches/TrailerHitches.csproj -c Release --disable-build-servers
 ```
 
-Install `src/Mods/TrailerHitches/bin/Release/netstandard2.1/TrailerHitches.dll` under
+Install `mods/TrailerHitches/bin/Release/netstandard2.1/TrailerHitches.dll` under
 `BepInEx/plugins/TrailerHitches/`. Source licensing follows the repository's GPL-3.0 license in
-[COPYING](../../../COPYING).
+[LICENSE](../../LICENSE). The `tools/trailerhitches.py` commands above are TLD-RevaMP's test tools.

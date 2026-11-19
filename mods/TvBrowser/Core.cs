@@ -9,7 +9,7 @@ namespace TvBrowser
     /// runs its own browser and keeps it on this (TvScreen.cs): only addresses, scroll positions and keys pass between
     /// players, never pictures.
     ///
-    /// Pure (no Unity): unit-tested by tools/unit/TvBrowserCoreTest.cs.
+    /// Pure (no Unity): unit-tested by tests/TvBrowserCoreTest.cs.
     public sealed class TvState
     {
         public uint Tv;                 // the TV's id in the session (MpApi.WorldObjectId); alone, a local number

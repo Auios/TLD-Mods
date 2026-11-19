@@ -9,9 +9,21 @@
     <GenerateDependencyFile>false</GenerateDependencyFile>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <PathMap>$(MSBuildProjectDirectory)=/src/$(MSBuildProjectName)</PathMap>
+    <!-- BETA branch only. The game to build against: -p:GameDir=..., else the TLD_DIR environment variable, else Steam's
+         default library (Windows or Linux). -->
+    <GameDir Condition="'$(GameDir)' == ''">$(TLD_DIR)</GameDir>
+    <GameDir Condition="'$(GameDir)' == '' And '$(OS)' == 'Windows_NT'">C:/Program Files (x86)/Steam/steamapps/common/The Long Drive</GameDir>
+    <GameDir Condition="'$(GameDir)' == ''">$(HOME)/.local/share/Steam/steamapps/common/The Long Drive</GameDir>
+    <Managed>$(GameDir)/TheLongDrive_Data/Managed</Managed>
+    <!-- RevaMP's multiplayer API: the one installed in the game, or -p:MpApi=<TLDRevamp.Multiplayer.dll> (a RevaMP build) -->
+    <MpApi Condition="'$(MpApi)' == ''">$(GameDir)/BepInEx/plugins/TLDRevamp/TLDRevamp.Multiplayer.dll</MpApi>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="$(MSBuildThisFileDirectory)../../../lib/*.dll" Private="false" />
-    <ProjectReference Include="../../TLDRevamp.Multiplayer/TLDRevamp.Multiplayer.csproj" Private="false" />
+    <!-- the game's assemblies and BepInEx, from the game folder (never shipped) -->
+    <Reference Include="$(Managed)/Assembly-CSharp.dll;$(Managed)/com.rlabrecque.steamworks.net.dll;$(Managed)/Unity.TextMeshPro.dll;$(Managed)/UnityEngine.dll;$(Managed)/UnityEngine.UI.dll;$(Managed)/UnityEngine.*Module.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/core/BepInEx.dll;$(GameDir)/BepInEx/core/0Harmony.dll" Private="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="TLDRevamp.Multiplayer"><HintPath>$(MpApi)</HintPath><Private>false</Private></Reference>
   </ItemGroup>
 </Project>

@@ -1,5 +1,8 @@
 * text=auto
 *.png binary
+# C# sources keep LF on every checkout: multi-line strings (TvBrowser's page scripts) would otherwise get CRLF in a
+# Windows build, and a release must be the same file wherever it is built
+*.cs text eol=lf
 # Shell scripts keep LF on every checkout (TvBrowser/Host/*.sh run under bash)
 *.sh text eol=lf
 # the TV Browser's prebuilt browser host

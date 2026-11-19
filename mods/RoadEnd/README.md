@@ -64,8 +64,8 @@ each world keeps the ones it was started with:
 ## Building and testing
 
 ```sh
-dotnet build src/Mods/RoadEnd/RoadEnd.csproj -c Release   # -> bin/Release/netstandard2.1/RoadEnd.dll
-TLD_TEST_MODS=RoadEnd tools/roadend.py                     # the new-game row, a world without and one with the end
+dotnet build mods/RoadEnd/RoadEnd.csproj -c Release       # -> bin/Release/netstandard2.1/RoadEnd.dll
+TLD_TEST_MODS=RoadEnd tools/roadend.py                     # in TLD-RevaMP: the new-game row, a world without and one with the end
 ```
 
-Put the DLL in `BepInEx/plugins/RoadEnd/`. Licence: GPL-3.0, as the rest of the repository.
+Put the DLL in `BepInEx/plugins/RoadEnd/`. Licence: GPL-3.0 (this repository's `LICENSE`).

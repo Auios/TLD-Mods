@@ -104,10 +104,10 @@ TV's copy. Replays are local files, but they do hold those pictures of whatever 
 ## Tests
 
 ```sh
-dotnet run --project tools/unit/TvBrowserCoreTest.csproj                            # state, edits, addresses, keys
-TVB_CHROME=/path/to/chrome-headless-shell dotnet run --project tools/unit/TvBrowserPageTest.csproj   # in a real browser
-tools/tvbrowser.py                                                                  # two players in the game
-tools/tvsound.py [--youtube]                                                        # the sound, in one game
+dotnet run --project tests/TvBrowserCoreTest.csproj                                 # state, edits, addresses, keys
+TVB_CHROME=/path/to/chrome-headless-shell dotnet run --project tests/TvBrowserPageTest.csproj   # in a real browser
+tools/tvbrowser.py                                   # in TLD-RevaMP: two players in the game
+tools/tvsound.py [--youtube]                         # in TLD-RevaMP: the sound, in one game
 ```
 
 Under Proton the game runs the Linux build. An empty file `BepInEx/config/TvBrowser/windows-build` makes it take the
