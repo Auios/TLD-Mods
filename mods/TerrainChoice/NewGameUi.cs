@@ -50,10 +50,10 @@ namespace TerrainChoice
             Object.Destroy(holder);
             string placed = Place(row as RectTransform, copy.transform as RectTransform, parent);
 
-            ds.SetValueWithoutNotify((int)Plugin.NewGameTerrain.Value);
+            ds.SetValueWithoutNotify(Plugin.NewGameTerrain.Value == TerrainMode.OldTerrain04 ? (int)TerrainMode.OldTerrain : (int)Plugin.NewGameTerrain.Value);
             ds.dropdown.onValueChanged.AddListener(v =>
             {
-                if (MapTag.Valid(v)) Plugin.NewGameTerrain.Value = (TerrainMode)v;
+                if (v >= 0 && v < Options.Length) Plugin.NewGameTerrain.Value = (TerrainMode)v;
                 Plugin.Log.LogInfo("New-game terrain set to " + MapTag.Label(Plugin.NewGameTerrain.Value));
             });
             dropdown = ds.dropdown; rowCopy = copy; LastCopy = copy;

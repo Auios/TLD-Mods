@@ -140,9 +140,10 @@ namespace TerrainChoice
             var plan = new List<OldBuildingPlan.Building>();
             double h0 = noise.Height(0f, 0f);
             foreach (var b in OldBuildingPlan.Generate(path, noise, noise.Seed, back: false))
-                plan.Add(new OldBuildingPlan.Building { X = b.X + OldNoise.OffsetX, Y = b.Y + h0, Z = b.Z, Ry = b.Ry, OldType = b.OldType });
-            foreach (var b in OldBuildingPlan.Generate(path, noise, unchecked(noise.Seed + 1), back: true))
-                plan.Add(new OldBuildingPlan.Building { X = -b.X + OldNoise.OffsetX, Y = b.Y + h0, Z = -b.Z, Ry = b.Ry + 180f, OldType = b.OldType });
+                plan.Add(new OldBuildingPlan.Building { X = b.X + noise.OffsetX, Y = b.Y + h0, Z = b.Z, Ry = b.Ry, OldType = b.OldType });
+            if (path.HasBack)   // 0.3/0.4 worlds: buildings along their road behind the start
+                foreach (var b in OldBuildingPlan.Generate(path, noise, unchecked(noise.Seed + 1), back: true))
+                    plan.Add(new OldBuildingPlan.Building { X = -b.X + noise.OffsetX, Y = b.Y + h0, Z = -b.Z, Ry = b.Ry + 180f, OldType = b.OldType });
             plan.Sort((a, b) => a.Z.CompareTo(b.Z));
             _plan = plan;
             _owners = ms.poiGens.ToArray();

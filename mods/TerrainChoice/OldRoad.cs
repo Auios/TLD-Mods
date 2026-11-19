@@ -24,9 +24,19 @@ namespace TerrainChoice
 
         private readonly Dir _fwd, _back;
         private readonly object _lock = new object();
+        private readonly double _offsetX, _lift;
+
+        /// Worlds since 0.5.0: the road starts at the origin as in the old game, nothing behind it. 0.3/0.4 worlds
+        /// (OldNoise.Legacy) keep their road behind the start.
+        public readonly bool HasBack;
 
         public OldRoadPath(OldNoise terrain)
         {
+            _offsetX = terrain.OffsetX;
+            // the old road's coords (what it drew and blended the ground to) sit 0.02 m above its bone chain
+            // (CalcOneRoad: coords.y = lastPos.y - roadAboveTerrain); 0.3/0.4 worlds keep the chain's height
+            _lift = terrain.Legacy ? 0.0 : -RoadAboveTerrain;
+            HasBack = terrain.Legacy;
             var rnd = new System.Random(terrain.Seed);   // old FStart: rnd = new Random(settings.seed); roadSeed = first draw
             float seed1 = (float)rnd.Next(-100000, 100000) * 1E-05f;
             float seed2 = (float)rnd.Next(-100000, 100000) * 1E-05f;
@@ -41,7 +51,7 @@ namespace TerrainChoice
         public int ForwardSegments => _fwd.CalcNum;
         public Vector3d ForwardSegmentPos(int i) => _fwd.SegPos[i];   // old-game frame, for checks against the old game
 
-        private static Vector3d Shift(Vector3d p) => new Vector3d(p.x + OldNoise.OffsetX, p.y, p.z);
+        private Vector3d Shift(Vector3d p) => new Vector3d(p.x + _offsetX, p.y + _lift, p.z);
 
         /// The road's ideal line at this distance from the start (OneValue x width; the old building plan follows it).
         /// back: the -z road, in its own turned frame.
@@ -54,7 +64,7 @@ namespace TerrainChoice
             lock (_lock)
             {
                 list.Add(AtLocked(z0));
-                if (z0 < 0)
+                if (z0 < 0 && HasBack)
                 {
                     var bk = _back.Through(-z0);   // [0] is the origin, which the forward road holds
                     for (int i = bk.Count - 1; i > 0; i--) if (bk[i].z > z0 && bk[i].z < z1) list.Add(Shift(bk[i]));
@@ -70,11 +80,25 @@ namespace TerrainChoice
             return list;
         }
 
+        /// The forward road's 10 m points up to this z, without the start itself (the old game's road coords: each
+        /// segment's bones, the first one 10 m from the start).
+        public List<Vector3d> ForwardPoints(double z)
+        {
+            var list = new List<Vector3d>();
+            lock (_lock)
+            {
+                var f = _fwd.Through(z);
+                for (int i = 1; i < f.Count && f[i].z <= z; i++) list.Add(Shift(f[i]));
+            }
+            return list;
+        }
+
         /// The point of the road at this z (interpolated between its 10 m points).
         public Vector3d At(double z) { lock (_lock) return AtLocked(z); }
 
         private Vector3d AtLocked(double z)
         {
+            if (z < 0 && !HasBack) { var s0 = Shift(_fwd.Points[0]); return new Vector3d(s0.x, s0.y, z); }   // no road there: dots only
             var pts = z >= 0 ? _fwd.Through(z) : _back.Through(-z);
             double s = z >= 0 ? 1 : -1;
             int i = First(pts, z, s);
@@ -265,11 +289,23 @@ namespace TerrainChoice
                 var from = c1.dots[__instance.id1].pos;
                 var to = c2.dots[__instance.id2].pos;
                 bool reverse = from.z > to.z;
-                var pts = _path.Between(Math.Min(from.z, to.z), Math.Max(from.z, to.z));
+                double z0 = Math.Min(from.z, to.z), z1 = Math.Max(from.z, to.z);
+                if (!_path.HasBack && z1 <= 0.0)
+                {
+                    // behind the start: the old game had no road there. The road stays in the beta's graph (dots and
+                    // connections as usual) but gets no pieces, so nothing is drawn, blended or aligned to it.
+                    __instance.generated = true;
+                    Roads++;
+                    return false;
+                }
+                bool cut = !_path.HasBack && z0 < 0.0;   // the road across the start: it begins at the origin
+                var pts = _path.Between(cut ? 0.0 : z0, z1);
                 if (reverse) pts.Reverse();
                 double off = _roadgen.offsetty;
-                for (int i = 1; i < pts.Count - 1; i++) { var p = pts[i]; p.y += off; pts[i] = p; }
-                pts[0] = from; pts[pts.Count - 1] = to;   // the dots already carry offsetty
+                for (int i = 0; i < pts.Count; i++) { var p = pts[i]; p.y += off; pts[i] = p; }
+                // the dots already carry offsetty; the start of a cut road is the old road's own start
+                if (!cut || reverse) pts[0] = from;
+                if (!cut || !reverse) pts[pts.Count - 1] = to;
                 var ts = _roadgen.terrainSettings;
                 for (int k = 0; k < pts.Count - 1; k += 10)
                 {

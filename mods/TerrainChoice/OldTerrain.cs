@@ -12,18 +12,23 @@ namespace TerrainChoice
     /// The old code works in float on Vector2(x, z) of its local world coordinates; the beta's global x/z map 1:1.
     internal sealed class OldNoise
     {
-        /// The old world sits this far east of the beta's origin: the beta puts the start house 45 m beside the main
-        /// road on the side facing the origin (poiGenScript.StartHouseStart), so the road must not run through it.
-        public const double OffsetX = 60.0;
+        /// Worlds made with 0.3/0.4 (Legacy): the old world sits 60 m east of the beta's origin, because the beta put
+        /// its start house 45 m beside the road facing the origin, and a road with buildings runs behind the start too.
+        /// Since 0.5.0 (not Legacy): the old world is at the origin as in the old game, nothing behind the start, and
+        /// the start buildings stand where the old game had them (OldStart).
+        public readonly double OffsetX;
+        public readonly bool Legacy;
 
         public readonly int Seed;
         private readonly Vector2[] _hv = new Vector2[8];   // randomize: Rnv(rnd) x8, in the old order
         private readonly Vector2[] _cv = new Vector2[3];   // VertexColor: Rnv(rnd) x3
         private readonly Vector2[] _oct = new Vector2[4];  // Noise(): new System.Random(seed) per call, one offset per octave
 
-        public OldNoise(int seed)
+        public OldNoise(int seed, bool legacy = false)
         {
             Seed = seed;
+            Legacy = legacy;
+            OffsetX = legacy ? 60.0 : 0.0;
             var r = new System.Random(seed);
             for (int i = 0; i < _hv.Length; i++) _hv[i] = Rnv(r);
             r = new System.Random(seed);
@@ -109,7 +114,7 @@ namespace TerrainChoice
         public static OldNoise Noise => _noise;
 
         /// From the map's FStart prefix (main thread, before any generator starts).
-        public static void Set(mapSettingScript ms, bool on, int seed)
+        public static void Set(mapSettingScript ms, bool on, bool legacy, int seed)
         {
             if (!on || ms == null || ms.terrainGenSettings == null || ms.terrainGenSettings.Count == 0 || ms.imageMapLoad != null)
             {
@@ -118,8 +123,8 @@ namespace TerrainChoice
                 return;
             }
             _owners = ms.terrainGenSettings.ToArray();
-            _noise = new OldNoise(seed);
-            Plugin.Log.LogInfo("Old terrain: the 2023 landscape for seed " + seed + " on " + _owners.Length + " terrain setting(s)");
+            _noise = new OldNoise(seed, legacy);
+            Plugin.Log.LogInfo("Old terrain: the 2023 landscape for seed " + seed + (legacy ? " (0.4 layout: 60 m east, road behind the start)" : "") + " on " + _owners.Length + " terrain setting(s)");
         }
 
         private static OldNoise For(terrainGenSettings s)
@@ -134,7 +139,8 @@ namespace TerrainChoice
         private static double Height(OldNoise n, Vector3d _gpos, List<roadGenScript.roadClass> _roadlist, List<poiGenScript.poiClass> _poiList)
         {
             Heights++;
-            double num = n.Height((float)(_gpos.x - OldNoise.OffsetX), (float)_gpos.z);
+            double num = n.Height((float)(_gpos.x - n.OffsetX), (float)_gpos.z);
+            if (!n.Legacy) return Exact(num, _gpos, _roadlist, _poiList);
             if (_poiList != null && _poiList.Count > 0)
             {
                 var align = poiGenScript.TerrainAlignsValue(_gpos, _poiList);
@@ -155,10 +161,40 @@ namespace TerrainChoice
             return num;
         }
 
+        /// Worlds since 0.5.0: the old game's order and blending. The start's flattening first (house and bus stop,
+        /// OldStart), then the beta's flattening of the roadside buildings (beta models, beta footprints), then the old
+        /// road blending (10 m flat, 20 m out), which the start's flat areas override as in the old game.
+        private static double Exact(double num, Vector3d _gpos, List<roadGenScript.roadClass> _roadlist, List<poiGenScript.poiClass> _poiList)
+        {
+            bool pinned = false;
+            num = OldStart.Align(_gpos.x, _gpos.z, num, ref pinned);
+            if (_poiList != null && _poiList.Count > 0)
+            {
+                // poiGenScript.TerrainAlignsValue without the start house, whose ground is the old one above
+                double best = double.MaxValue, height = 0.0, lerp = 0.0;
+                foreach (var poi in _poiList)
+                {
+                    if (OldStart.IsStartHouse(poi)) continue;
+                    foreach (var a in poi.terrainAligns)
+                    {
+                        Vector3d v = _gpos;
+                        v.y = a.gpos.y;
+                        double m = (v - a.gpos).magnitude;
+                        double l = Mathd.InverseLerp(-1.0, 1.0, Mathd.Sin(Mathd.Lerp(-90.0, 90.0, Mathd.InverseLerp(a.maxRadius, a.minRadius, m)) * 0.01745329));
+                        if (l > lerp || (l != 0.0 && l == lerp && m < best)) { lerp = l; best = m; height = a.gpos.y; }
+                    }
+                }
+                if (lerp != 0.0) num = Mathd.Lerp(num, height, lerp);
+            }
+            var path = OldRoad.Path;
+            if (!pinned && path != null) num = OldRoadBlend.Blend(_gpos.x, _gpos.z, num, _roadlist, path.Start);
+            return num;
+        }
+
         private static Color Biome(OldNoise n, Vector3d _gpos, double _height)
         {
             Colors++;
-            return n.Color((float)(_gpos.x - OldNoise.OffsetX), (float)_gpos.z, (float)_height);
+            return n.Color((float)(_gpos.x - n.OffsetX), (float)_gpos.z, (float)_height);
         }
 
         [HarmonyPatch(typeof(terrainGenSettings), nameof(terrainGenSettings.Height), new[] { typeof(Vector3d), typeof(List<roadGenScript.roadClass>), typeof(List<poiGenScript.poiClass>) })]

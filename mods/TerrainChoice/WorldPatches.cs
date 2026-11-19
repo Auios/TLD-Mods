@@ -30,7 +30,12 @@ namespace TerrainChoice
                 if (RevampLink.TakeHostMode(out mode)) CurrentSource = "the RevaMP host's";
                 else if (d.load) { mode = MapTag.Parse(_mapClass.map.mapName); CurrentSource = "from the save"; }
                 else if (d.multi) { mode = MapTag.Parse(_mapClass.map.mapName); CurrentSource = "the host's"; }
-                else { mode = Plugin.NewGameTerrain.Value; CurrentSource = "new game setting"; }
+                else
+                {
+                    // 0.3/0.4's old terrain is only for worlds made with it
+                    mode = Plugin.NewGameTerrain.Value == TerrainMode.OldTerrain04 ? TerrainMode.OldTerrain : Plugin.NewGameTerrain.Value;
+                    CurrentSource = "new game setting";
+                }
                 Current = mode;
                 var m = _mapClass.map;   // structs: copied back
                 m.mapName = MapTag.With(m.mapName, mode);
@@ -64,9 +69,10 @@ namespace TerrainChoice
 
         private static void Apply(mapSettingScript ms, TerrainMode mode, int seed)
         {
-            OldTerrain.Set(ms, mode == TerrainMode.OldTerrain, seed);
-            OldRoad.Set(ms, mode == TerrainMode.OldTerrain ? OldTerrain.Noise : null, RoadGens(ms));
-            OldBuildings.Set(ms, mode == TerrainMode.OldTerrain ? OldRoad.Path : null, OldTerrain.Noise);
+            OldTerrain.Set(ms, mode.IsOld(), mode == TerrainMode.OldTerrain04, seed);
+            OldRoad.Set(ms, mode.IsOld() ? OldTerrain.Noise : null, RoadGens(ms));
+            OldBuildings.Set(ms, mode.IsOld() ? OldRoad.Path : null, OldTerrain.Noise);
+            OldStart.Set(ms, mode == TerrainMode.OldTerrain ? OldTerrain.Noise : null);
             if (mode == TerrainMode.Crossroads) return;   // crossroads = the map prefab as it is; the old world had one road
             int changed = 0, skipped = 0;
             foreach (var g in RoadGens(ms))
