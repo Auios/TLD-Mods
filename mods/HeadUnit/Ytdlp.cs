@@ -16,7 +16,13 @@ namespace HeadUnit
     /// video player can open (a single file with sound, up to the configured height). Nothing passes between players
     /// but video ids: each machine asks YouTube itself.
     ///
-    /// The programs: BepInEx/config/HeadUnit/yt-dlp.exe and deno.exe (the game runs as a Windows program, under Proton
+    /// yt-dlp is its unpacked Windows build (yt-dlp_win.zip: yt-dlp.exe beside its libraries) in a folder of its own,
+    /// BepInEx/config/HeadUnit/yt-dlp-<checksum>, named in yt-dlp.current. The one-file yt-dlp.exe unpacks itself into a
+    /// temporary folder each run, and from yt-dlp 2026.11.23 (PyInstaller 6.22) it checks that folder's name, which
+    /// Wine shortens: under Proton it stopped at once ("Security validation failure: unexpected name of application's
+    /// home directory") and no video played. A yt-dlp.exe from before is still used until the next download.
+    ///
+    /// The programs: BepInEx/config/HeadUnit/yt-dlp and deno.exe (the game runs as a Windows program, under Proton
     /// too). YouTube's files can only be fetched after solving its JavaScript challenges, which yt-dlp hands to Deno
     /// (without it: "Requested format is not available", or 403 on the file; playtest 2026-10-15). If either is
     /// missing, the player is offered a download of the official releases, each checked against its release's own
@@ -83,11 +89,11 @@ namespace HeadUnit
         {
             Dir = Path.Combine(configDir, "HeadUnit");
             Directory.CreateDirectory(Dir);
-            Exe = Path.Combine(Dir, "yt-dlp.exe");
+            Exe = CurrentYtdlp();
             Deno = Path.Combine(Dir, "deno.exe");
             FfmpegDir = Path.Combine(Dir, "ffmpeg");
             Ffmpeg = Path.Combine(FfmpegDir, "ffmpeg.exe");
-            try { if (File.Exists(Exe + ".old")) File.Delete(Exe + ".old"); } catch { }   // left by an update while it ran
+            CleanOldYtdlp();
             CacheDir = Path.Combine(cacheDir, "HeadUnit");
             Directory.CreateDirectory(CacheDir);
             Clear();   // what an earlier game left (a crash, or a file the player still held when it closed)
@@ -422,7 +428,44 @@ namespace HeadUnit
 
         // ------------------------------------------------------------------ getting yt-dlp
 
-        /// Download the official yt-dlp.exe and keep it only if its SHA-256 is the one in the same release's SHA2-256SUMS.
+        public const string YtdlpZip = "yt-dlp_win.zip";
+        private static string CurrentFile => Path.Combine(Dir, "yt-dlp.current");
+        private static string LegacyExe => Path.Combine(Dir, "yt-dlp.exe");
+
+        /// The yt-dlp to run: the unpacked one yt-dlp.current names, else a one-file yt-dlp.exe from before.
+        private static string CurrentYtdlp()
+        {
+            try
+            {
+                string name = File.Exists(CurrentFile) ? File.ReadAllText(CurrentFile).Trim() : "";
+                if (Regex.IsMatch(name, "^yt-dlp-[0-9a-f]{12}$"))
+                {
+                    string exe = Path.Combine(Dir, name, "yt-dlp.exe");
+                    if (File.Exists(exe)) return exe;
+                }
+            }
+            catch (Exception ex) { Plugin.Log.LogWarning("yt-dlp.current unreadable: " + ex.Message); }
+            return LegacyExe;
+        }
+
+        /// At game start, before any yt-dlp runs: the unpacked folders that aren't the current one, and the one-file
+        /// yt-dlp.exe once an unpacked one replaced it (each left by an update while it ran).
+        private static void CleanOldYtdlp()
+        {
+            try
+            {
+                string keep = Exe != LegacyExe ? Path.GetDirectoryName(Exe) : null;
+                foreach (var d in Directory.GetDirectories(Dir, "yt-dlp-*"))
+                    if (keep == null || !string.Equals(Path.GetFullPath(d), Path.GetFullPath(keep), StringComparison.OrdinalIgnoreCase))
+                        try { Directory.Delete(d, true); } catch { }
+                if (keep != null) try { if (File.Exists(LegacyExe)) File.Delete(LegacyExe); } catch { }
+                try { if (File.Exists(LegacyExe + ".old")) File.Delete(LegacyExe + ".old"); } catch { }
+            }
+            catch (Exception ex) { Plugin.Log.LogWarning("old yt-dlp copies not cleaned: " + ex.Message); }
+        }
+
+        /// Download the official yt-dlp (its unpacked Windows build) and keep it only if its SHA-256 is the one in the same
+        /// release's SHA2-256SUMS.
         /// Only after the player agreed (Panel).
         public static void Download()
         {
@@ -486,14 +529,19 @@ namespace HeadUnit
                 foreach (var line in sums.Split('\n'))
                 {
                     var p = line.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (p.Length == 2 && p[1].TrimStart('*') == "yt-dlp.exe") want = p[0].ToLowerInvariant();
+                    if (p.Length == 2 && p[1].TrimStart('*') == YtdlpZip) want = p[0].ToLowerInvariant();
                 }
-            if (want == null) { Fail("could not read yt-dlp's checksums: not downloaded"); yield break; }
+            if (want == null || !Regex.IsMatch(want, "^[0-9a-f]{64}$")) { Fail("could not read yt-dlp's checksums: not downloaded"); yield break; }
             byte[] data = null;
-            yield return Fetch(ReleaseBase + "yt-dlp.exe", "yt-dlp", want, d => data = d);
+            yield return Fetch(ReleaseBase + YtdlpZip, "yt-dlp", want, d => data = d);
             if (data == null) yield break;
-            try { Keep(Exe, data); }
-            catch (Exception ex) { Fail("yt-dlp couldn't be saved: " + ex.Message); yield break; }
+            Status = "unpacking yt-dlp...";
+            yield return null;
+            string exe;
+            try { exe = UnpackYtdlp(data, "yt-dlp-" + want.Substring(0, 12)); }
+            catch (Exception ex) { Fail("yt-dlp couldn't be unpacked: " + ex.Message); yield break; }
+            if (exe == null) { Fail("yt-dlp's download has no yt-dlp.exe"); yield break; }
+            Exe = exe;
             Plugin.Log.LogInfo($"yt-dlp downloaded and verified (sha256 {want.Substring(0, 12)}) to {Exe}");
             _gotYtdlp = true; ToolsChanged();
         }
@@ -598,6 +646,45 @@ namespace HeadUnit
                 if (hash != sha256) { Fail($"{what}'s file didn't match its checksum: thrown away"); yield break; }
                 got(data);
             }
+        }
+
+        /// The checked zip unpacked into Dir/`folder` (made beside it first, so a cut-off unpack leaves no half folder),
+        /// then named in yt-dlp.current; the folder in use before stays until the next start (a yt-dlp still running
+        /// from it holds its files). Returns the new yt-dlp.exe, or null if the zip has none.
+        private static string UnpackYtdlp(byte[] data, string folder)
+        {
+            string dest = Path.Combine(Dir, folder), tmp = dest + ".part";
+            string exe = Path.Combine(dest, "yt-dlp.exe");
+            if (File.Exists(exe) && CurrentYtdlp() == exe) return exe;   // this very release, already here
+            if (Directory.Exists(tmp)) Directory.Delete(tmp, true);
+            Directory.CreateDirectory(tmp);
+            string root = Path.GetFullPath(tmp) + Path.DirectorySeparatorChar;
+            using (var zip = new System.IO.Compression.ZipArchive(new MemoryStream(data)))
+            {
+                // the program's folder in the zip: wherever its yt-dlp.exe is
+                string prefix = null;
+                foreach (var e in zip.Entries)
+                {
+                    string n = e.FullName.Replace('\\', '/');
+                    if (n == "yt-dlp.exe" || n.EndsWith("/yt-dlp.exe")) { prefix = n.Substring(0, n.Length - "yt-dlp.exe".Length); break; }
+                }
+                if (prefix == null) { Directory.Delete(tmp, true); return null; }
+                foreach (var e in zip.Entries)
+                {
+                    string n = e.FullName.Replace('\\', '/');
+                    if (!n.StartsWith(prefix) || n.Length == prefix.Length) continue;
+                    string rel = n.Substring(prefix.Length);
+                    string path = Path.GetFullPath(Path.Combine(tmp, rel.Replace('/', Path.DirectorySeparatorChar)));
+                    if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase)) throw new IOException("unsafe path in the zip: " + n);
+                    if (rel.EndsWith("/")) { Directory.CreateDirectory(path); continue; }
+                    Directory.CreateDirectory(Path.GetDirectoryName(path));
+                    using (var src = e.Open()) using (var dst = File.Create(path)) src.CopyTo(dst);
+                }
+            }
+            if (Directory.Exists(dest)) Directory.Delete(dest, true);
+            Directory.Move(tmp, dest);
+            Keep(CurrentFile, System.Text.Encoding.ASCII.GetBytes(folder));
+            return exe;
         }
 
         /// The new file in place of the old. A program still running (a yt-dlp fetching the next video while it is
