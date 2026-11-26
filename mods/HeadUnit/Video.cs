@@ -45,11 +45,15 @@ namespace HeadUnit
         /// Width over height of the picture (16:9 until the video says).
         public float Aspect = 16f / 9f;
         public static readonly float SeekOverS = 1.0f, RetryS = 30f, SeekGapS = 3f;
-        /// Catch-up seeks a player gets in CatchUpWindowS before it is left to drift: a player whose clock stands still
-        /// was sought every SeekGapS for good, the repeated seeks that crashed Proton's media framework.
+        /// Catch-up seeks a player gets in CatchUpWindowS with its clock standing still before it is left to drift: such a
+        /// player was sought every SeekGapS for good, the repeated seeks that crashed Proton's media framework. A seek
+        /// counts only when the player's time didn't move on since the one before (at least half as far as real time): a
+        /// pause, a tab switch or a slow start needs several in half a minute, and capping those left a running video
+        /// unsynced for up to half a minute (14 times on a host in one two-player test).
         public static readonly int MaxCatchUps = 4;
         public static readonly float CatchUpWindowS = 30f;
         private readonly Queue<float> _catchUps = new Queue<float>();
+        private float _catchAt = -100f, _catchTo;
 
         // The audio clock: where it stands still (no sound device, as Wine can have none; a stalled mixer) a player on it
         // stands still too. New players take unscaled game time then. Read every frame a video follows.
@@ -283,7 +287,7 @@ namespace HeadUnit
             VideoId = id;
             var p = Take(id, out bool reused);
             if (Trace) Plugin.Log.LogInfo($"video make {id} reused {reused} pool {_pool.Count}");
-            Player = p; Audio = _audioOf[p]; Audio.mute = false; _seeking = false; _lastSeek = -100f; _catchUps.Clear();
+            Player = p; Audio = _audioOf[p]; Audio.mute = false; _seeking = false; _lastSeek = -100f; _catchUps.Clear(); _catchAt = -100f;
             _idOf[p] = id;
             if (reused && p.isPrepared) { Problem = null; MakeTexture(p); return; }   // open already: on to the shared position
             if (reused) return;   // still preparing: prepareCompleted carries on
@@ -397,9 +401,15 @@ namespace HeadUnit
             if (Mathf.Abs(want - (float)Player.time) > SeekOverS)
             {
                 float t = Time.realtimeSinceStartup;
+                // its clock ran since the last catch-up: what came before doesn't count
+                if ((float)Player.time - _catchTo >= (t - _catchAt) * 0.5f) _catchUps.Clear();
                 while (_catchUps.Count > 0 && t - _catchUps.Peek() > CatchUpWindowS) _catchUps.Dequeue();
-                if (_catchUps.Count >= MaxCatchUps) return;   // its clock doesn't keep up: left to drift a while
-                if (SeekTo(want)) { _catchUps.Enqueue(t); if (_catchUps.Count == MaxCatchUps) Plugin.Log.LogWarning($"video {VideoId}: {MaxCatchUps} catch-up seeks in {CatchUpWindowS:F0} s, left to drift (audio clock running: {AudioClockRunning})"); }
+                if (_catchUps.Count >= MaxCatchUps) return;   // its clock stands still: left to drift a while
+                if (SeekTo(want))
+                {
+                    _catchAt = t; _catchTo = want; _catchUps.Enqueue(t);
+                    if (_catchUps.Count == MaxCatchUps) Plugin.Log.LogWarning($"video {VideoId}: {MaxCatchUps} catch-up seeks in {CatchUpWindowS:F0} s with its clock standing still, left to drift (audio clock running: {AudioClockRunning})");
+                }
             }
         }
 
