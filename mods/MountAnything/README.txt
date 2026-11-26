@@ -1,17 +1,35 @@
-MountAnything 0.2.2 - The Long Drive BETA branch (V2024.11.26b_test), works alongside TLD RevaMP (tested with 0.69.1)
+MountAnything 0.3.0 - The Long Drive BETA branch (V2024.11.26b_test), works alongside TLD RevaMP (tested with 0.69.3)
 
 Mount (glue) any item you hold onto whatever you look at: a car's body, another item, a building, the ground.
 
 Use
-  1. Pick an item up.
-  2. Look at the spot where it should go (as close as you'd normally reach).
-     A see-through green glowing copy of the item shows where and how it will be mounted, and the placement keys show at
-     the bottom of the screen.
-  3. Turn, tilt and move it with the placement keys (below) if you like.
-  4. Press G (the game's own Glue key). The item is mounted exactly where the green copy was.
+  Every item you carry works like the game's own glueable items (a mirror, the clock):
+  1. Pick an item up and hold it where it should go, turned the way you want it (as you always turn held items).
+  2. Look at the spot and press G (the game's own Glue key, "[G]: Attach"). The item sticks there as you hold it.
+  While you carry it, the game's own keys for glueable items work too:
+    R          toggle its collision (off: you can hold it partly inside things while you line it up)
+    Shift+R    attach mode, in turn:
+                 closest point  its closest point goes on the spot you look at (the game's own)
+                 origin         its origin goes on the spot (the game's own)
+                 in place       it stays exactly where and how you hold it, mounted on what it touches or is pushed
+                                into (the thing you look at if it touches that, else the one it's in deepest). G is
+                                offered only while it touches something. Turn its collision off with R to push it
+                                partly into a wall, a car or the ground first.
+                 preview        a see-through green copy shows where and how it will be mounted; turn, tilt and move
+                                it with the placement keys below, then G mounts it where the copy is (the 0.2 way)
+                 then back to closest point. The line at the bottom of the screen names the mode.
   To take it off, pick it up as usual (F).
+  Carried items that already use R for something else (jerrycans and other things you pour, magazines, ammo boxes)
+  get all of this too. R stays theirs where it does something (a can or tank to pour into, a gun to reload): there R
+  pours or reloads and doesn't touch the collision; anywhere else R toggles collision as for every item. Shift+R only
+  switches the mode, it never pours.
+  Items the game itself hangs on a joint (the fuel can, air fresheners, the sausage) keep only the game's two modes:
+  their joint pins the item's middle to the mount point and lets it swing, so they can't stay as held.
 
-Placement keys (while the green copy shows; standing, not in a car seat)
+What changed in 0.3: the see-through preview and the placement keys are now Shift+R's preview mode instead of always on.
+Before 0.3 the item only got the game's glue when you pressed G, so the game's R and Shift+R never showed for it.
+
+Placement keys (in the preview mode, while the green copy shows; standing, not in a car seat)
   Left / Right arrow    turn it around the surface's normal (like turning it on a table)
   Up / Down arrow       tip its top away from you / toward you
   , / .                 tip its top to the left / right
@@ -25,9 +43,10 @@ Placement keys (while the green copy shows; standing, not in a car seat)
   None of these keys is one of the game's default keys on foot or one of RevaMP's (PageUp, PageDown, K, F11).
   They can all be changed in the settings.
 
-Items the game could already glue rigidly (mirrors, the clock, the compass, plates...) get the green copy and the keys too, and the
-game's G mounts them at the shown pose (turn off with GameGlueItems). The game's own Shift+R "attach mode" doesn't
-apply to them then. Ones that hang on a joint (air fresheners, the sausage) keep the game's own glue, without a preview.
+In the preview mode, items the game could already glue rigidly (mirrors, the clock, the compass, plates...) get the green
+copy and the keys too, and the game's G mounts them at the shown pose (turn off with GameGlueItems). Ones that hang on a
+joint (air fresheners, the sausage) keep the game's own glue, without a preview. In closest point and origin, the game
+glues all of these itself, as without the mod.
 Car parts that normally only fit their slot (wheels, doors, engine parts...) can be mounted
 anywhere too (turn off with AllowSlotParts); the game's own key (F) still puts them into their slot.
 
@@ -36,8 +55,12 @@ Settings: BepInEx\config\anonymoustld.mountanything.cfg
   [Mount] Key             = None    (None = the game's Glue key; or any Unity KeyCode name, e.g. H)
   [Mount] AllowSlotParts  = true
   [Mount] AlignToSurface  = false   (true: every placement starts upright: the item's own up side out of the surface)
-  [Place] Enabled         = true    (false: no preview or keys, the 0.1 behaviour: the item keeps the way you hold
-                                     it and its point nearest the crosshair goes on the spot)
+  [Mount] InPlaceMode     = true    (false: no in-place step in Shift+R)
+  [Mount] PreviewMode     = true    (false: no preview step in Shift+R)
+  [Mount] GameControls    = true   (false: a carried item gets the game's glue only when you press the mount key, so
+                                     the game's R and Shift+R don't apply to it: the 0.2 way)
+  [Place] Preview         = false   (true: the green copy and the placement keys for every item, in every mode but in
+                                     place: the 0.2 way. 0.2 called this [Place] Enabled; that old line is ignored now)
   [Place] ShowPreview     = true
   [Place] ShowHelp        = true
   [Place] GameGlueItems   = true

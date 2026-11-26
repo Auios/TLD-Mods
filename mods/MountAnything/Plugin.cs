@@ -16,13 +16,13 @@ namespace MountAnything
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "anonymoustld.mountanything";
-        public const string Version = "0.2.2";
+        public const string Version = "0.3.0";
 
         internal static ManualLogSource Log;
         internal static ConfigEntry<bool> Enabled;
         internal static ConfigEntry<KeyCode> MountKey;
         internal static ConfigEntry<bool> AllowSlotParts;
-        internal static ConfigEntry<bool> AlignToSurface;
+        internal static ConfigEntry<bool> AlignToSurface, GameControls, InPlaceMode, PreviewMode;
         internal static ConfigEntry<bool> Place, ShowPreview, ShowHelp, PlaceGameGlue;
         internal static ConfigEntry<KeyCode> TurnLeftKey, TurnRightKey, TiltAwayKey, TiltTowardKey, TiltLeftKey, TiltRightKey, OutKey, InKey, ResetKey, FineKey;
         internal static ConfigEntry<float> AngleStep, FineAngleStep, MoveStep, FineMoveStep;
@@ -43,9 +43,20 @@ namespace MountAnything
 
             // Placement keys: none is one of the beta's default bindings on foot (the arrows steer in a car, so they only
             // work standing) or one of RevaMP's (PageUp, PageDown, K, F11).
-            Place = Config.Bind("Place", "Enabled", true,
-                "Show where the held item will be mounted and let the keys below turn, tilt and move it. Off = the 0.1 behaviour " +
-                "(the item keeps the way you hold it; its point nearest the crosshair goes on the spot).");
+            GameControls = Config.Bind("Mount", "GameControls", true,
+                "Give a carried item the game's own glue the moment you pick it up, so the game handles it like its own glueable " +
+                "items: G attaches it where you hold it, R toggles its collision, Shift+R switches between its origin and its " +
+                "closest point. Off = the item gets the glue only when you press the mount key.");
+            InPlaceMode = Config.Bind("Mount", "InPlaceMode", true,
+                "Add a third step to the game's Shift+R attach mode: closest point -> origin -> in place. In place, G mounts the " +
+                "carried item exactly where and how you hold it, on what it touches or is pushed into.");
+            PreviewMode = Config.Bind("Mount", "PreviewMode", true,
+                "Add a fourth step to Shift+R, after in place: preview. The carried item shows the see-through copy and the " +
+                "placement keys below (the 0.2 way), and G mounts it where the copy is.");
+            // 0.3: a new key, so configs written by 0.2 (Enabled = true) start without the preview too
+            Place = Config.Bind("Place", "Preview", false,
+                "Show a see-through copy where the held item will be mounted and let the keys below turn, tilt and move it " +
+                "for every item, whatever the Shift+R mode (the 0.2 way). Off = only in Shift+R's preview mode (PreviewMode above).");
             ShowPreview = Config.Bind("Place", "ShowPreview", true, "Draw a see-through copy of the item where it will be mounted.");
             ShowHelp = Config.Bind("Place", "ShowHelp", true, "Show the placement keys on screen while you can mount.");
             PlaceGameGlue = Config.Bind("Place", "GameGlueItems", true,

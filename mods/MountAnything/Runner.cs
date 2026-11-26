@@ -18,7 +18,10 @@ namespace MountAnything
                 try { Mounting.Cleanup(); }
                 catch (System.Exception e) { Plugin.Log.LogWarning("cleanup: " + e.Message); }
             }
+            try { Mounting.PrepareHeld(); }
+            catch (System.Exception e) { Plugin.Log.LogWarning("glue for the carried item: " + e.Message); }
             RevampLink.ApplyPending();
+            InPlace.CheckTracked();
             Diag.Tick();
         }
 
@@ -26,6 +29,7 @@ namespace MountAnything
         {
             try { Placement.Draw(); }
             catch (System.Exception e) { Plugin.Log.LogWarning("preview: " + e.Message); }
+            if (RevampLink.Watch) RevampLink.CheckWatch("late update");
         }
 
         private void OnGUI()
@@ -36,7 +40,7 @@ namespace MountAnything
                 _style ??= new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = 16 };
                 GUI.Label(new Rect(Screen.width / 2f - 150f, Screen.height * 0.62f, 300f, 26f), "[" + Plugin.MountKey.Value + "]: Mount here", _style);
             }
-            if (now <= Placement.ActiveUntil && Plugin.Place.Value && Plugin.ShowHelp.Value)
+            if (now <= Placement.ActiveUntil && Plugin.ShowHelp.Value)   // set only while the preview is worked out
             {
                 _help ??= new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperCenter, fontSize = 14, wordWrap = true };
                 var r = new Rect(Screen.width / 2f - 360f, Screen.height * 0.82f, 720f, 48f);

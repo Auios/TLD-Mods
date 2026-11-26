@@ -55,6 +55,7 @@ namespace MountAnything
         {
             if (_mode == null) return;
             Mounting.TestUnfocused = true;   // the test window has no focus: its pause menu is up
+            RevampLink.Watch = true;
             // the game applies its saved window mode (fullscreen): a test window stays a small window
             if (Screen.fullScreenMode != FullScreenMode.Windowed || Screen.width > 1280) Screen.SetResolution(1280, 720, FullScreenMode.Windowed);
             try
@@ -148,7 +149,39 @@ namespace MountAnything
             /// Placement keys pressed at the first look (PreActs) and at the second (Acts): the preview between the two
             /// must turn by Angle degrees, and end with its lowest point Lift metres out of the surface.
             public Placement.Act[] PreActs, Acts; public bool Fine; public float Angle, Lift; public bool GameGlue, AimAtPress;
+            /// Without the preview (0.3 default): mount with the game's attach point at the item's origin (Shift+R), not its
+            /// closest point. NoGlue: an item with an R of its own (a jerrycan): carried, it gets the glue, R and Shift+R are checked, not mounted.
+            public bool Origin, NoGlue;
         }
+        private static Quaternion _heldRot;
+        private static tosaveitemscript _ipA, _ipB;
+        private static poiScript _ipPoi;
+        private static bool _ipToggle;
+        private static Vector3 _ipSpot;
+        private static bool _pkOnCar;
+        private static tosaveitemscript _ownR;   // the carried item with its own R (a jerrycan)
+        private static bool _ownRToggle;
+        private static long _ownRKept;
+        private static tosaveitemscript _joint;   // a spawned item the game hangs on a joint (the fuel can)
+        private static Vector3 _pkSpot, _pkFrom;   // Shift+R's preview stage: a free spot on the car, and where to look from
+        private static tosaveitemscript _ipGround, _ipWall, _ipAgainst;
+        private static Vector3 _ipAgainstFrom;
+
+        /// One more in-place mount: the item held with its middle on a surface (half of it inside, collision off by R),
+        /// G, and it must be mounted on the expected thing, exactly as held.
+        private class IpCase
+        {
+            public string Name; public tosaveitemscript Item; public Func<Vector3?> Spot; public Func<Vector3> From; public float Range = 0.9f;
+            public Func<attachablescript, string> On;   // null = on the expected thing; else what is wrong
+            public bool GameGlue;
+            /// Held the player's way: not placed by the test, the game's hand pulls it to the crosshair (collision on: it
+            /// rests against the surface), the way the player had it (2026-11-25).
+            public bool Natural;
+        }
+        private static readonly List<IpCase> _ipCases = new List<IpCase>();
+        private static readonly List<tosaveitemscript> _ipDone = new List<tosaveitemscript>();
+        private static int _ipIdx;
+        private static Vector3? _ipCaseSpot;
         private static readonly List<Plan> _plans = new List<Plan>();
         private static int _planIdx;
         private static tosaveitemscript _car;
@@ -174,6 +207,9 @@ namespace MountAnything
                     var poi = UnityEngine.Object.FindObjectsOfType<poiScript>().Where(p => p.cols != null && p.cols.Any(c => c != null && !c.isTrigger))
                                 .OrderBy(p => (p.transform.position - pl.transform.position).sqrMagnitude).FirstOrDefault();
                     var under = plain[3];
+                    _ipA = plain.Count > 5 ? plain[5] : null; _ipB = plain.Count > 6 ? plain[6] : null; _ipPoi = poi;
+                    var spare = plain.Skip(7).Where(t => !Mounting.OwnR(t.P)).ToList();
+                    _ipGround = spare.Count > 0 ? spare[0] : null; _ipWall = spare.Count > 1 ? spare[1] : null; _ipAgainst = spare.Skip(2).FirstOrDefault(t => t.GetComponentsInChildren<Renderer>().Select(r => r.bounds.size.magnitude).DefaultIfEmpty(9f).Max() < 0.4f);   // small, like the player's sponge
                     var A = new Func<Placement.Act[], Placement.Act[]>(a => a);
                     // flat on the car's side, turned 30 degrees, 2 cm out
                     _plans.Add(new Plan { Name = "car body", Item = plain[0], Target = () => SideOfCar(), From = () => _car.transform.position + _car.transform.right * 10f,
@@ -188,12 +224,21 @@ namespace MountAnything
                                               Acts = A(new[] { Placement.Act.TurnLeft }), Angle = 15f, GameGlue = true });
                     else Write("no loose item the game glues rigidly by itself");
                     if (poi != null) _plans.Add(new Plan { Name = "building " + poi.name, Item = plain[2], Target = () => OnPoi(poi), From = () => PoiStand(poi),
-                                                           PreActs = new[] { Placement.Act.Reset, Placement.Act.Reset } });   // upright
+                                                           PreActs = new[] { Placement.Act.Reset, Placement.Act.Reset }, Origin = true });   // upright
                     if (plain.Count > 4)
                     {
                         _plans.Add(new Plan { Name = "another item (" + under.name + ")", Item = plain[4], Under = under, AimAtPress = true, Target = () => OnItem(under), From = () => _car.transform.position });
                     }
                     if (part != null) _plans.Add(new Plan { Name = "car roof (slot part " + part.name + ")", Item = part, Target = () => RoofOfCar(), From = () => _car.transform.position + _car.transform.right * 10f });
+                    var pour = savedatascript.s.items.Values.Where(t => t != null && t.P != null && t.P.ammo != null && t.car == null && t.attachable == null && t.transform.parent == null &&
+                                                                         !_plans.Any(x => x.Item == t) &&
+                                                                         t.P.physlock == null && (t.transform.position - pl.transform.position).magnitude < 400f)
+                                   .OrderBy(t => (t.transform.position - pl.transform.position).sqrMagnitude).FirstOrDefault();
+                    if (!Plugin.Place.Value && Plugin.GameControls.Value)
+                    {
+                        if (pour != null) _plans.Add(new Plan { Name = "carried, has its own R", Item = pour, NoGlue = true, Target = () => OpenGround(poi), From = () => OpenGround(poi).Value + AwayFromPoi(poi) * 3f });
+                        else Write("no loose item with an R of its own (ammo) near");
+                    }
                     Write("plan: " + string.Join("; ", _plans.Select(p => p.Item.name + " (" + p.Item.idInSave + ") -> " + p.Name).ToArray()));
                     _planIdx = 0;
                     _step = 1;
@@ -201,7 +246,7 @@ namespace MountAnything
                 }
                 case 1:   // pick up the next item
                 {
-                    if (_planIdx >= _plans.Count) { _step = 10; return 0.5f; }
+                    if (_planIdx >= _plans.Count) { _step = 40; return 0.5f; }
                     var p = _plans[_planIdx];
                     if (p.Under != null) PlaceUnder(p.Under);
                     if (pl.pickedUp != null) pl.Drop();
@@ -226,14 +271,65 @@ namespace MountAnything
                     StandAndLook(p.Target().Value, p.Range, p.From?.Invoke());   // again: the player may have settled
                     bool offered = pl.BCanAttachGlue || Time.unscaledTime < Mounting.HintUntil;
                     Write(p.Name + ": looking at " + DescribeLook(pl) + ", mount offered " + offered + (p.GameGlue ? " (the game's own glue offer; placement for game glue " + Placement.ForGameGlue + ")" : ""));
+                    if (!Plugin.Place.Value && Plugin.GameControls.Value && !p.GameGlue)
+                    {
+                        var hat = p.Item.attachable;
+                        if (p.NoGlue)
+                        {
+                            Check(pl.pickedUp == p.Item.P && hat != null && Mounting.Added.Contains(hat), p.Item.name + " (R is its own) carried with the game's glue from the mod: " + (hat == null ? "none" : "has it"));
+                            _ownR = p.Item; _ownRToggle = pl.attachableColliderDisableToggle;
+                            OwnRKeys.TestR = true;
+                            _step = 70; return 0.4f;
+                        }
+                        if (hat != null && !Mounting.Added.Contains(hat))
+                            Write(p.Item.name + ": has the game's own attachment (" + (hat.onlyToSlot ? "slot part" : "glue") + "), nothing added");
+                        else
+                            Check(hat != null && !hat.attached, p.Item.name + " carried with the game's glue from the mod (the game's own G, R and Shift+R apply)");
+                        // a small item near drifts out of the crosshair as the player settles (AimAtPress): no offer check
+                        if (!p.AimAtPress) Check(offered, p.Item.name + ": the game offers [G]: Attach");
+                    }
                     _preRot = Placement.KeyRot; _framesBefore = Placement.DrawnFrames;
                     PressPlacement(p.Acts, p.Fine);
                     _step = 31;
                     return 0.5f;
                 }
+                case 70:   // an item with its own R (a jerrycan), carried: R without a target toggles collision, as for every item
+                    Check(pl.attachableColliderDisableToggle != _ownRToggle, _ownR.name + ": R with nothing to pour into or reload toggles collision (" + _ownRToggle + " -> " + pl.attachableColliderDisableToggle + ")");
+                    _ownRToggle = pl.attachableColliderDisableToggle; _ownRKept = OwnRKeys.Kept;
+                    OwnRKeys.TestTarget = true; OwnRKeys.TestR = true;
+                    _step = 71; return 0.4f;
+                case 71:   // ... with a target (as if looking at a can to fill), R is the item's own: no collision toggle
+                    Check(pl.attachableColliderDisableToggle == _ownRToggle && OwnRKeys.Kept > _ownRKept, _ownR.name + ": R where the game offers the item's own R leaves collision alone (kept " + (OwnRKeys.Kept - _ownRKept) + ")");
+                    OwnRKeys.TestTarget = false;
+                    pl.attachableColliderDisableToggle = false;
+                    InPlace.Reset(pl);
+                    InPlace.TestPress = true; _step = 72; return 0.4f;
+                case 72:
+                    Check(pl.attachableOriginToggle && pl.canShiftR, _ownR.name + ": Shift+R: closest point -> origin (" + InPlace.LastLabel + ")");
+                    InPlace.TestPress = true; _step = 73; return 0.4f;
+                case 73:
+                    Check(InPlace.Active(pl.pickedUp) && InPlace.LastLabel.EndsWith("In Place"), _ownR.name + ": Shift+R: origin -> in place (" + InPlace.LastLabel + ")");
+                    InPlace.TestPress = true; _step = 74; return 0.4f;
+                case 74:
+                    Check(!Plugin.PreviewMode.Value || InPlace.PreviewActive(pl.pickedUp) && InPlace.LastLabel.EndsWith("Preview"), _ownR.name + ": Shift+R: in place -> preview (" + InPlace.LastLabel + ")");
+                    InPlace.Reset(pl);
+                    if (pl.pickedUp != null) pl.Drop();
+                    _planIdx++; _step = 1;
+                    return 0.5f;
                 case 31:   // the preview after the keys
                 {
                     var p = _plans[_planIdx];
+                    if (!Plugin.Place.Value)
+                    {
+                        // the game's way: the item goes as held, through the game's own Glue key
+                        if (p.AimAtPress) StandAndLook(p.Target().Value, p.Range, p.From?.Invoke());
+                        pl.attachableOriginToggle = p.Origin;
+                        _heldRot = p.Item.transform.rotation;
+                        _mountsBefore = (int)Mounting.Mounts;
+                        if (p.GameGlue || Plugin.GameControls.Value) Mounting.TestGlueDown = true; else Mounting.TestPress = true;
+                        _step = 4;
+                        return 0.5f;
+                    }
                     if (p.AimAtPress)
                     {
                         // a small item lying near drifts out of the crosshair as the player settles: aim and press at once,
@@ -257,36 +353,343 @@ namespace MountAnything
                     var p = _plans[_planIdx];
                     Mounting.TestPress = false; Mounting.TestGlueDown = false;
                     var at = p.Item.attachable;
-                    bool ok = Mounting.Mounts > _mountsBefore && at != null && at.attached;
-                    Check(ok, "mount " + p.Item.name + " on " + p.Name + ": " + (ok ? Mounting.LastMount : "not mounted (held " + (pl.pickedUp != null ? pl.pickedUp.name : "nothing") + ")"));
+                    bool native = !Plugin.Place.Value;
+                    bool ok = (Mounting.Mounts > _mountsBefore || native && p.GameGlue) && at != null && at.attached;
+                    Check(ok, "mount " + p.Item.name + " on " + p.Name + ": " + (ok ? (native && p.GameGlue ? "glued by the game itself" : Mounting.LastMount) : "not mounted (held " + (pl.pickedUp != null ? pl.pickedUp.name : "nothing") + ")"));
                     if (ok) Check(p.Item.GetComponent<Rigidbody>() == null && p.Item.transform.parent != null, p.Item.name + " is a rigid child now (no Rigidbody, parent " + p.Item.transform.parent.name + ")");
-                    if (ok && p.AimAtPress) CheckPreview(p.Name + " (at the mount frame)", p.Item, _preRot, p.Angle, p.Lift, false);
-                    if (ok) CheckPlaced(p.Item, p.AimAtPress ? (Vector3?)null : _previewPos, _previewRot);
+                    if (ok && native)
+                    {
+                        pl.attachableOriginToggle = false;
+                        float turned = Quaternion.Angle(_heldRot, p.Item.transform.rotation);
+                        Check(turned < 0.5f, p.Item.name + " mounted the way it was held (turned " + turned.ToString("F2") + " deg)");
+                        if (!p.GameGlue)
+                        {
+                            if (p.Origin)
+                            {
+                                float off = (p.Item.transform.position - (Mounting.LastHitPoint + Mounting.LastHitNormal * at.offsetback)).magnitude;
+                                Check(off < 0.002f, p.Item.name + ": Shift+R origin mode: its origin on the aimed point (" + (off * 1000f).ToString("F1") + " mm off)");
+                            }
+                            else
+                            {
+                                // the game's rule (attachablescript.SetOwnPosition): the item's point nearest the aimed spot goes
+                                // onto the aimed collider's point nearest to it, or onto the aimed spot itself on a mesh collider
+                                var ac = at.attachedC;
+                                bool box = ac != null && !(ac is MeshCollider);
+                                float near = float.MaxValue;
+                                foreach (var c in p.Item.GetComponentsInChildren<Collider>())
+                                {
+                                    if (c == null || !c.enabled || c.isTrigger) continue;
+                                    if (!box) { near = Mathf.Min(near, (c.ClosestPoint(Mounting.LastHitPoint) - Mounting.LastHitPoint).magnitude); continue; }
+                                    // the gap between the item and the collider it was aimed at (alternating nearest points)
+                                    var q = ac.ClosestPoint(c.bounds.center);
+                                    for (int k = 0; k < 8; k++) q = ac.ClosestPoint(c.ClosestPoint(q));
+                                    near = Mathf.Min(near, (c.ClosestPoint(q) - q).magnitude);
+                                }
+                                Check(box ? near < 0.005f : near < 0.1f, p.Item.name + ": closest-point mode: " + (box ? "touches the collider it was aimed at (" + ac.name + ", " : "its nearest point by the aimed spot (") +
+                                      (near * 1000f).ToString("F1") + " mm off)");
+                            }
+                        }
+                    }
+                    if (ok && !native && p.AimAtPress) CheckPreview(p.Name + " (at the mount frame)", p.Item, _preRot, p.Angle, p.Lift, false);
+                    if (ok && !native) CheckPlaced(p.Item, p.AimAtPress ? (Vector3?)null : _previewPos, _previewRot);
                     if (pl.pickedUp != null) pl.Drop();
                     _planIdx++;
                     _step = 1;
                     return 1f;
                 }
+                case 40:   // in place (Shift+R's third mode): cycle to it, mount an item pushed into the car's side
+                {
+                    if (Plugin.Place.Value || !Plugin.InPlaceMode.Value || !Plugin.GameControls.Value || _ipA == null || _ipB == null)
+                    { Write("in-place stage skipped (preview on, mode off, or not enough items)"); _step = 10; return 0.2f; }
+                    if (pl.pickedUp != null) pl.Drop();
+                    InPlace.Reset(pl);
+                    Hold(_ipA);
+                    Write("in place: holding " + _ipA.name + ": pickedUp " + (pl.pickedUp == _ipA.P));
+                    _step = 41; return 1f;
+                }
+                case 41: InPlace.TestPress = true; _step = 42; return 0.4f;
+                case 42:
+                    Check(pl.attachableOriginToggle && !InPlace.On, "Shift+R: closest point -> origin (" + InPlace.LastLabel + ")");
+                    InPlace.TestPress = true; _step = 43; return 0.4f;
+                case 43:
+                    Check(InPlace.On && !pl.attachableOriginToggle && InPlace.LastLabel.EndsWith("In Place"), "Shift+R: origin -> in place (" + InPlace.LastLabel + ")");
+                    _ipSpot = (SideOfCar(1f, -1.3f) ?? SideOfCar(-1f, 1.3f) ?? SideOfCar()).Value;   // a free spot (the earlier mounts are mid-side)
+                    StandAndLook(_ipSpot, 0.9f, _car.transform.position + _car.transform.right * 10f);
+                    _ipToggle = pl.attachableColliderDisableToggle;
+                    pl.attachableColliderDisableToggle = true;   // R: collision off, so it can go partly into the car
+                    _step = 44; return 1f;
+                case 44:
+                {
+                    StandAndLook(_ipSpot, 0.9f, _car.transform.position + _car.transform.right * 10f);
+                    // into the car's side: its middle on the body's surface, half of it inside (R has its collision off)
+                    var rb = _ipA.GetComponent<Rigidbody>();
+                    if (rb != null) { rb.velocity = Vector3.zero; rb.angularVelocity = Vector3.zero; rb.position = _ipSpot; }
+                    _ipA.transform.position = _ipSpot;
+                    Write("in place: " + _ipA.name + " held at " + DescribeLook(pl) + ", offered " + pl.BCanAttachGlue);
+                    _mountsBefore = (int)InPlace.Mounts;
+                    Mounting.TestGlueDown = true;
+                    _step = 45; return 0.6f;
+                }
+                case 45:
+                {
+                    Mounting.TestGlueDown = false;
+                    var at = _ipA.attachable;
+                    bool ok = InPlace.Mounts > _mountsBefore && at != null && at.attached;
+                    Check(ok, "in place: " + _ipA.name + " pushed into the car's side mounted: " + (ok ? Mounting.LastMount : "not mounted"));
+                    if (ok)
+                    {
+                        var to = at.AttachedToTosave();
+                        Check(to != null && (to == _car || to.transform.IsChildOf(_car.transform)), "in place: on the car (" + (to != null ? to.name : "nothing") + ")");
+                        float dp = (_ipA.transform.position - InPlace.LastHeldPos).magnitude * 1000f, da = Quaternion.Angle(_ipA.transform.rotation, InPlace.LastHeldRot);
+                        Check(dp < 0.5f && da < 0.05f, "in place: exactly as held (" + dp.ToString("F2") + " mm, " + da.ToString("F3") + " deg)");
+                        _ipDone.Add(_ipA);
+                    }
+                    if (pl.pickedUp != null) pl.Drop();
+                    _step = 50; return 0.5f;
+                }
+                case 50:   // more in-place mounts: on the ground, on a building, and an item the game glues itself
+                {
+                    _ipCases.Clear();
+                    var side = Vector3.Cross(Vector3.up, AwayFromPoi(_ipPoi)).normalized;
+                    _ipCases.Add(new IpCase { Name = "on the ground", Item = _ipGround, Range = 1.2f,
+                        Spot = () => { var g = OpenGround(_ipPoi); return g == null ? null : Ground(g.Value + side * 1.5f) ?? Ground(g.Value - side * 1.5f); },
+                        From = () => _ipCaseSpot.Value + AwayFromPoi(_ipPoi) * 3f,
+                        On = at => at.AttachedToTosave() == null && at.AttachedToPOI() == null ? null : "not on the ground" });
+                    if (_ipPoi != null)
+                    {
+                        _ipCases.Add(new IpCase { Name = "on building " + _ipPoi.name, Item = _ipWall, Spot = () => IpWall(), From = () => _ipWallFrom,
+                            On = at => at.AttachedToPOI() == _ipPoi ? null : "not on the building" });
+                        // the player's case (2026-11-25): held against the house wall by the hand, collision on - G wasn't offered
+                        _ipCases.Add(new IpCase { Name = "held against building " + _ipPoi.name + ", collision on", Item = _ipAgainst, Natural = true,
+                            Spot = () => IpWall(new[] { -0.7f, 1.2f, -1.2f, 0.4f }, out _, out _ipAgainstFrom), From = () => _ipAgainstFrom,
+                            On = at => at.AttachedToPOI() == _ipPoi ? null : "not on the building" });
+                    }
+                    // a slot-only part (the player's hubcap, 2026-11-25): In Place applies to it too
+                    var cap = AllowSlot() ? Spawn("Car07TireDisztarcsa") : null;
+                    // on the car's side: there the game's hand point (0.9 m out) is on the surface; looking down at the ground it is
+                    // half a metre up, and the hand pulled the cap off the ground before G (2026-11-25)
+                    var cs = CarSpots(0.9f).Where(x => (x.At - _ipSpot).magnitude > 0.6f).OrderByDescending(x => Vector3.Dot(x.From - _car.transform.position, _car.transform.right)).FirstOrDefault();
+                    _ipCases.Add(new IpCase { Name = "on the car's side (slot part " + (cap != null ? cap.name : "none") + ")", Item = cap,
+                        Spot = () => cs != null ? cs.At : (Vector3?)null, From = () => cs.From,
+                        On = at => { var to = at.AttachedToTosave(); return to != null && (to == _car || to.transform.IsChildOf(_car.transform)) ? null : "not on the car"; } });
+                    var glue = SpawnGameGlue();
+                    // a spot on the car's sides in view, away from the first in-place mount (the start car differs per run)
+                    var gs = CarSpots(0.9f).Where(x => (x.At - _ipSpot).magnitude > 0.6f).OrderBy(x => Vector3.Dot(x.From - _car.transform.position, _car.transform.right)).FirstOrDefault();
+                    _ipCases.Add(new IpCase { Name = "on the car's side (game glue item " + (glue != null ? glue.name : "none") + ")", Item = glue, GameGlue = true,
+                        Spot = () => gs != null ? gs.At : (Vector3?)null, From = () => gs.From,
+                        On = at => { var to = at.AttachedToTosave(); return to != null && (to == _car || to.transform.IsChildOf(_car.transform)) ? null : "not on the car"; } });
+                    Write("in place, more: " + string.Join("; ", _ipCases.Select(c => (c.Item != null ? c.Item.name : "no item") + " -> " + c.Name).ToArray()));
+                    _ipIdx = 0;
+                    _step = 51; return 1f;
+                }
+                case 51:
+                {
+                    if (_ipIdx >= _ipCases.Count) { _step = 49; return 0.2f; }
+                    var c = _ipCases[_ipIdx];
+                    _ipCaseSpot = c.Item != null ? c.Spot() : null;
+                    if (c.Item == null || _ipCaseSpot == null)
+                    { Check(false, "in place " + c.Name + ": " + (c.Item == null ? "no item for it" : "no spot")); _ipIdx++; return 0.2f; }
+                    if (pl.pickedUp != null) pl.Drop();
+                    Hold(c.Item);
+                    Write("in place: holding " + c.Item.name + ": pickedUp " + (pl.pickedUp == c.Item.P));
+                    _step = 52; return 1f;
+                }
+                case 52:
+                {
+                    var c = _ipCases[_ipIdx];
+                    StandAndLook(_ipCaseSpot.Value, c.Range, c.From());
+                    var at = c.Item.attachable;
+                    Check(InPlace.Active(pl.pickedUp) && InPlace.LastLabel.EndsWith("In Place"),
+                          "in place " + c.Name + ": " + c.Item.name + " carried in the In Place mode (" + InPlace.LastLabel + ")");
+                    if (c.GameGlue) Check(at != null && !Mounting.Added.Contains(at), "in place " + c.Name + ": " + c.Item.name + " keeps its own glue (nothing added)");
+                    pl.attachableColliderDisableToggle = !c.Natural;   // R: collision off, so it can go partly in
+                    if (c.Natural) { _step = 55; _ipWaits = 0; return 0.5f; }
+                    _step = 53; return 0.6f;
+                }
+                case 53:
+                {
+                    var c = _ipCases[_ipIdx];
+                    StandToHold(_ipCaseSpot.Value, 0.9f, c.From(), c.Range);
+                    // its middle on the surface: half of it inside
+                    var rb = c.Item.GetComponent<Rigidbody>();
+                    if (rb != null) { rb.velocity = Vector3.zero; rb.angularVelocity = Vector3.zero; rb.position = _ipCaseSpot.Value; }
+                    c.Item.transform.position = _ipCaseSpot.Value;
+                    Write("in place " + c.Name + ": " + c.Item.name + " held at " + DescribeLook(pl) + ", offered " + pl.BCanAttachGlue);
+                    _mountsBefore = (int)InPlace.Mounts;
+                    Mounting.TestGlueDown = true;
+                    _step = 54; return 0.6f;
+                }
+                case 55:   // held the player's way: the hand pulls it against the surface; then G, as a player presses it
+                {
+                    var c = _ipCases[_ipIdx];
+                    StandToHold(_ipCaseSpot.Value, 0.96f, c.From());   // the hand's point a little behind the surface: pressed on it
+                    if (++_ipWaits < 4) return 0.3f;
+                    Write("in place " + c.Name + ": " + c.Item.name + " held at " + DescribeLook(pl) + ", " +
+                          ((c.Item.transform.position - _ipCaseSpot.Value).magnitude * 1000f).ToString("F0") + " mm from the wall spot, offered " + pl.BCanAttachGlue);
+                    Check(pl.BCanAttachGlue, "in place " + c.Name + ": the game offers [G]: Attach while it rests against the wall");
+                    _mountsBefore = (int)InPlace.Mounts;
+                    Mounting.TestGlueDown = true;
+                    _step = 54; return 0.6f;
+                }
+                case 54:
+                {
+                    Mounting.TestGlueDown = false;
+                    var c = _ipCases[_ipIdx];
+                    var at = c.Item.attachable;
+                    bool ok = InPlace.Mounts > _mountsBefore && at != null && at.attached;
+                    Check(ok, "in place " + c.Name + ": " + c.Item.name + " mounted: " + (ok ? Mounting.LastMount : "not mounted (held " + (pl.pickedUp != null ? pl.pickedUp.name : "nothing") + "; " + Mounting.LastLost + ")"));
+                    if (ok)
+                    {
+                        var why = c.On(at);
+                        Check(why == null, "in place " + c.Name + ": " + (why ?? "on it") + " (" + Mounting.LastMount + ")");
+                        float dp = (c.Item.transform.position - InPlace.LastHeldPos).magnitude * 1000f, da = Quaternion.Angle(c.Item.transform.rotation, InPlace.LastHeldRot);
+                        Check(dp < 0.5f && da < 0.05f, "in place " + c.Name + ": exactly as held (" + dp.ToString("F2") + " mm, " + da.ToString("F3") + " deg)");
+                        Check(c.Item.GetComponent<Rigidbody>() == null && c.Item.transform.parent != null, "in place " + c.Name + ": " + c.Item.name + " is a rigid child now");
+                        _ipDone.Add(c.Item);
+                    }
+                    if (pl.pickedUp != null) pl.Drop();
+                    _ipIdx++;
+                    _step = 51; return 1f;
+                }
+                case 49:   // in the air: nothing touched, nothing to mount on
+                {
+                    pl.attachableColliderDisableToggle = _ipToggle;
+                    if (pl.pickedUp != null) pl.Drop();
+                    Hold(_ipB);
+                    var air = OpenGround(_ipPoi);
+                    if (air != null) StandAndLook(air.Value + Vector3.up * 4f, 2.5f, air.Value + AwayFromPoi(_ipPoi) * 3f);
+                    _step = 46; return 1f;
+                }
+                case 46:
+                {
+                    var air = OpenGround(_ipPoi);
+                    if (air != null) StandAndLook(air.Value + Vector3.up * 4f, 2.5f, air.Value + AwayFromPoi(_ipPoi) * 3f);
+                    Write("in place: " + _ipB.name + " held in the air, looking at " + DescribeLook(pl) + ", offered " + pl.BCanAttachGlue);
+                    _mountsBefore = (int)Mounting.Mounts;
+                    Mounting.TestGlueDown = true;
+                    _step = 47; return 0.6f;
+                }
+                case 47:
+                    Mounting.TestGlueDown = false;
+                    Check(Mounting.Mounts == _mountsBefore && (_ipB.attachable == null || !_ipB.attachable.attached) && pl.pickedUp == _ipB.P,
+                          "in place: " + _ipB.name + " touching nothing: G mounts nothing, still carried");
+                    InPlace.TestPress = true; _step = 48; return 0.4f;
+                case 48:
+                    if (!Plugin.PreviewMode.Value)
+                    {
+                        Check(!InPlace.On && !InPlace.PreviewStep && !pl.attachableOriginToggle, "Shift+R: in place -> closest point, preview mode off (" + InPlace.LastLabel + ")");
+                        if (pl.pickedUp != null) pl.Drop();
+                        _step = 10; return 0.5f;
+                    }
+                    Check(InPlace.PreviewStep && !InPlace.On && !pl.attachableOriginToggle && InPlace.LastLabel.EndsWith("Preview"), "Shift+R: in place -> preview (" + InPlace.LastLabel + ")");
+                    InPlace.TestPress = true; _step = 60; return 0.4f;
+                case 60:   // Shift+R's preview step: the whole cycle once more, then the green copy and its keys on the car
+                    Check(!InPlace.PreviewStep && !InPlace.On && !pl.attachableOriginToggle && !InPlace.LastLabel.EndsWith("Preview") && !InPlace.LastLabel.EndsWith("In Place"),
+                          "Shift+R: preview -> closest point (" + InPlace.LastLabel + ")");
+                    InPlace.TestPress = true; _step = 61; return 0.4f;   // closest point -> origin
+                case 61: InPlace.TestPress = true; _step = 62; return 0.4f;   // origin -> in place
+                case 62: InPlace.TestPress = true; _step = 63; return 0.4f;   // in place -> preview
+                case 63:
+                {
+                    Check(InPlace.PreviewStep && InPlace.PreviewActive(pl.pickedUp) && InPlace.LastLabel.EndsWith("Preview"), "Shift+R: round the cycle to preview again (" + InPlace.LastLabel + ")");
+                    // a free spot on the car's side (the earlier mounts are on it too), else open ground by it
+                    _pkOnCar = true; Vector3? s = null; float sign = -1f;
+                    foreach (var c in new[] { new Vector2(-1f, -1.3f), new Vector2(1f, 1.3f), new Vector2(-1f, 0.6f), new Vector2(1f, -0.6f), new Vector2(-1f, -0.6f) })
+                        if ((s = SideOfCar(c.x, c.y)) != null) { sign = c.x; break; }
+                    if (s != null) _pkFrom = _car.transform.position + _car.transform.right * sign * 10f;
+                    else
+                    {
+                        var g = OpenGround(_ipPoi);
+                        var side = Vector3.Cross(Vector3.up, AwayFromPoi(_ipPoi)).normalized;
+                        s = g == null ? null : Ground(g.Value + side * 3f) ?? Ground(g.Value - side * 3f);
+                        _pkOnCar = false;
+                        if (s != null) _pkFrom = s.Value + AwayFromPoi(_ipPoi) * 3f;
+                    }
+                    if (s == null)
+                    {
+                        Write("Shift+R preview mount skipped (no free spot on the car or the ground by it)");
+                        if (pl.pickedUp != null) pl.Drop();
+                        InPlace.Reset(pl);
+                        _step = 10; return 0.5f;
+                    }
+                    _pkSpot = s.Value;
+                    if (pl.pickedUp != _ipB.P) { if (pl.pickedUp != null) pl.Drop(); Hold(_ipB); }
+                    StandAndLook(_pkSpot, 0.9f, _pkFrom);
+                    _step = 64; return 1f;
+                }
+                case 64:
+                    StandAndLook(_pkSpot, 0.9f, _pkFrom);
+                    Check(Placement.ShownFor(pl.pickedUp), "Shift+R preview: the green copy shows for " + _ipB.name + " at the car (" + DescribeLook(pl) + ")");
+                    Placement.TestActs.Enqueue(new KeyValuePair<Placement.Act, bool>(Placement.Act.TurnRight, false));
+                    _step = 65; return 0.4f;
+                case 65:
+                    StandAndLook(_pkSpot, 0.9f, _pkFrom);
+                    Check(Mathf.Abs(Placement.Turn - Plugin.AngleStep.Value) < 0.01f, "Shift+R preview: the turn key turns the copy (" + Placement.State() + ")");
+                    _mountsBefore = (int)Mounting.Mounts;
+                    Mounting.TestGlueDown = true;
+                    _step = 66; return 0.6f;
+                case 66:
+                {
+                    Mounting.TestGlueDown = false;
+                    var at = _ipB.attachable;
+                    bool ok = Mounting.Mounts > _mountsBefore && InPlace.PreviewStep && at != null && at.attached;
+                    Check(ok, "Shift+R preview: G mounted " + _ipB.name + ": " + (ok ? Mounting.LastMount : "not mounted"));
+                    if (ok)
+                    {
+                        var to = at.AttachedToTosave();
+                        if (_pkOnCar) Check(to != null && (to == _car || to.transform.IsChildOf(_car.transform)), "Shift+R preview: on the car (" + (to != null ? to.name : "nothing") + ")");
+                        else Check(to == null && at.AttachedToPOI() == null, "Shift+R preview: on the ground (" + (to != null ? to.name : at.AttachedToPOI() != null ? "a building" : "the ground") + ")");
+                        CheckPlaced(_ipB, null, default);
+                        _ipDone.Add(_ipB);
+                    }
+                    if (pl.pickedUp != null) pl.Drop();
+                    InPlace.Reset(pl);
+                    _step = 75; return 0.5f;
+                }
+                case 75:   // an item the game hangs on a joint (the fuel can, play test 2026-11-26): Shift+R has the game's two modes only
+                {
+                    _joint = Spawn("benzineskanna");
+                    var at = _joint != null ? _joint.attachable : null;
+                    if (at == null || at.parentAtAttach)
+                    {
+                        Write("joint item check skipped (" + (_joint == null ? "no fuel can" : at == null ? "the fuel can has no glue" : "the fuel can is glued rigidly") + ")");
+                        _step = 10; return 0.5f;
+                    }
+                    InPlace.Reset(pl);
+                    Hold(_joint);
+                    _step = 76; return 1f;
+                }
+                case 76: InPlace.TestPress = true; _step = 77; return 0.4f;   // closest point -> origin
+                case 77:
+                    Check(pl.pickedUp == _joint.P && pl.attachableOriginToggle && !InPlace.On && !InPlace.PreviewStep, _joint.name + " (hangs on a joint): Shift+R: closest point -> origin (" + InPlace.LastLabel + ")");
+                    InPlace.TestPress = true; _step = 78; return 0.4f;   // origin -> back to closest point, no in place
+                case 78:
+                    Check(!pl.attachableOriginToggle && !InPlace.On && !InPlace.PreviewStep && !InPlace.Active(pl.pickedUp) && !InPlace.LastLabel.EndsWith("In Place") && !InPlace.LastLabel.EndsWith("Preview"),
+                          _joint.name + " (hangs on a joint): Shift+R: origin -> closest point, no in place or preview (" + InPlace.LastLabel + ")");
+                    if (pl.pickedUp != null) pl.Drop();
+                    InPlace.Reset(pl);
+                    _step = 10; return 0.5f;
                 case 10:   // the car moves: what is on it rides along
                 {
                     _before = Poses();
                     var rb = _car.GetComponent<Rigidbody>();
                     var tr = _car.transform;
-                    var np = tr.position + tr.right * 3f + Vector3.up * 0.5f; var nr = Quaternion.AngleAxis(25f, Vector3.up) * tr.rotation;
+                    // away from the house, not into it (a car moved under its roof left no spot to aim at for the mp run)
+                    var np = tr.position + AwayFromPoi(_ipPoi) * 3f + Vector3.up * 0.5f; var nr = Quaternion.AngleAxis(25f, Vector3.up) * tr.rotation;
                     if (rb != null) { rb.position = np; rb.rotation = nr; }
                     tr.SetPositionAndRotation(np, nr);
-                    Write("car moved 3 m sideways and turned 25 degrees");
+                    Write("car moved 3 m away from the house and turned 25 degrees");
                     _step = 11;
                     return 4f;
                 }
                 case 11:
                 {
                     var after = Poses();
-                    foreach (var p in _plans)
+                    foreach (var it in _plans.Select(p => p.Item).Concat(_ipDone))
                     {
-                        if (!_before.TryGetValue(p.Item.idInSave, out var b) || !after.TryGetValue(p.Item.idInSave, out var a)) continue;
+                        if (!_before.TryGetValue(it.idInSave, out var b) || !after.TryGetValue(it.idInSave, out var a)) continue;
                         if (b.Kind != "item" || b.ParentId != _car.idInSave) continue;
-                        Check(Same(a, b), p.Item.name + " stayed put on the moved car (" + Diff(a, b) + ")");
+                        Check(Same(a, b), it.name + " stayed put on the moved car (" + Diff(a, b) + ")");
                     }
                     StandAndLook(_car.transform.position + Vector3.up * 0.6f, 5f);
                     _step = 12;
@@ -311,8 +714,8 @@ namespace MountAnything
                 {
                     var poses = Poses();
                     var sb = new StringBuilder();
-                    foreach (var p in _plans)
-                        if (poses.TryGetValue(p.Item.idInSave, out var ps)) sb.AppendLine(ps.ToLine());
+                    foreach (var it in _plans.Select(p => p.Item).Concat(_ipDone))   // the in-place mounts must load back too
+                        if (poses.TryGetValue(it.idInSave, out var ps)) sb.AppendLine(ps.ToLine());
                     sb.AppendLine("player " + V(mainscript.GlobalFromUnityPos(pl.transform.position)));
                     File.WriteAllText(StateFile, sb.ToString());
                     Write("expected poses written for " + poses.Count + " mounted items");
@@ -423,7 +826,10 @@ namespace MountAnything
                 case 2:
                 {
                     Check(_taken.attachable == null || !_taken.attachable.attached, _taken.name + " came off when picked up");
-                    Check(_taken.attachable == null, _taken.name + " is a plain item again (the mod's component removed)");
+                    // carried, it keeps the mod's glue (the game's own G/R/Shift+R, 0.3); without GameControls it goes at once
+                    if (Plugin.GameControls.Value && _takenWasAdded)
+                        Check(_taken.attachable != null && Mounting.Added.Contains(_taken.attachable), _taken.name + " keeps the mod's glue while carried");
+                    else Check(_taken.attachable == null, _taken.name + " is a plain item again (the mod's component removed)");
                     Check(_taken.GetComponent<Rigidbody>() != null && _taken.transform.parent == null || pl.pickedUp == _taken.P, _taken.name + " has its Rigidbody back");
                     _driveHeld = false;
                     Write("held for " + _heldFrames + " frames of the game's held-item work");
@@ -440,6 +846,7 @@ namespace MountAnything
                         foreach (var c in _taken.P.cols) if (c != null && c.col != null) { all++; if (c.col.enabled) on++; }
                     Check(all > 0 && on == all, _taken.name + " put down after being taken off with the collision toggle at off: colliders " + on + "/" + all + " on" +
                           (_takenWasAdded ? "" : " (its prefab's own component: the game's Drop does it)"));
+                    if (_takenWasAdded) Check(_taken.attachable == null, _taken.name + " put down: a plain item again (the mod's glue removed)");
                     _step = 3;
                     return 0.2f;
                 }
@@ -638,6 +1045,74 @@ namespace MountAnything
 
         private static Vector3 PoiStand(poiScript poi) { OnPoi(poi); return _poiStand ?? _car.transform.position; }
 
+        private static Vector3 _ipWallFrom;
+
+        /// Another spot on the same building wall, beside the one OnPoi found (an item is already mounted there).
+        private static int _ipWaits;
+
+        private static Vector3? IpWall() => IpWall(new[] { 0.7f, -0.7f, 1.2f, -1.2f, 0.4f, -0.4f }, out _, out _ipWallFrom);
+
+        private static Vector3? IpWall(float[] offsets, out Vector3 normal, out Vector3 from)
+        {
+            normal = Vector3.zero; from = Vector3.zero;
+            if (OnPoi(_ipPoi) == null || _poiStand == null) return null;
+            var stand = _poiStand.Value; var target = _poiTarget.Value;
+            var dir = target - stand; dir.y = 0f;
+            var tangent = Vector3.Cross(Vector3.up, dir.normalized).normalized;
+            foreach (var o in offsets)
+            {
+                var s = stand + tangent * o; var t = target + tangent * o;
+                foreach (var h in Physics.RaycastAll(s, (t - s).normalized, 40f, Pl.attachLayer).OrderBy(h => h.distance))
+                {
+                    if (h.collider.isTrigger || h.collider.transform.IsChildOf(Pl.transform)) continue;
+                    if (h.collider.GetComponentInParent<poiScript>() == _ipPoi && h.collider.GetComponentInParent<tosaveitemscript>() == null && h.distance > 1.5f)
+                    { from = s; normal = h.normal; return h.point; }
+                    break;
+                }
+            }
+            return null;
+        }
+
+        private static bool AllowSlot() => Plugin.AllowSlotParts.Value;
+
+        /// A new item from the item list, spawned the dev menu's way, beside the player.
+        private static tosaveitemscript Spawn(string prefab)
+        {
+            var g = itemdatabase.s.items.FirstOrDefault(x => x != null && x.name == prefab);
+            var go = g != null ? mainscript.s.Spawn(g) : null;
+            var ts = go != null ? go.GetComponent<tosaveitemscript>() : null;
+            if (ts == null) { Write("could not spawn " + prefab); return null; }
+            var p = Pl.transform.position + Pl.transform.forward * 1.5f + Vector3.up * 1f;
+            var rb = ts.GetComponent<Rigidbody>();
+            if (rb != null) { rb.velocity = Vector3.zero; rb.position = p; }
+            ts.transform.position = p;
+            var at = ts.attachable;
+            Write("spawned " + ts.name + " (" + ts.idInSave + ")" + (at != null ? ": onlyToSlot " + at.onlyToSlot + ", parentAtAttach " + at.parentAtAttach + ", useColliderAttachPoint " + at.useColliderAttachPoint : ": no attachable"));
+            return ts;
+        }
+
+        /// A new item the game glues by itself, rigidly (a mirror, the clock, a plate), spawned the dev menu's way.
+        private static tosaveitemscript SpawnGameGlue()
+        {
+            foreach (var n in new[] { "BigMirror", "clock", "plate" })
+            {
+                var g = itemdatabase.s.items.FirstOrDefault(x => x != null && x.name == n);
+                var a = g != null ? g.GetComponent<attachablescript>() : null;
+                if (a == null || a.onlyToSlot || !a.parentAtAttach) continue;
+                var go = mainscript.s.Spawn(g);
+                var ts = go != null ? go.GetComponent<tosaveitemscript>() : null;
+                if (ts == null) continue;
+                var p = Pl.transform.position + Pl.transform.forward * 1.5f + Vector3.up * 1f;
+                var rb = ts.GetComponent<Rigidbody>();
+                if (rb != null) { rb.velocity = Vector3.zero; rb.position = p; }
+                ts.transform.position = p;
+                Write("spawned " + ts.name + " (" + ts.idInSave + ")");
+                return ts;
+            }
+            Write("no game glue item to spawn");
+            return null;
+        }
+
 
         private static Vector3? OnItem(tosaveitemscript under)
         {
@@ -695,6 +1170,18 @@ namespace MountAnything
                 if (rb != null) { rb.velocity = Vector3.zero; rb.angularVelocity = Vector3.zero; rb.position = hp; rb.rotation = hr; }
                 held.SetPositionAndRotation(hp, hr);
             }
+        }
+
+        /// Stands so the point the game's hand holds the item at (as far out along the view as it was picked up: Hold
+        /// picks up at 0.9 m) is `hold` metres from the camera at the point, as a player holding it there would: looking
+        /// down at a car's side from eye height, StandAndLook's 0.9 m across put the hand 18 cm short, and the hand pulled
+        /// the item off its spot before G. Range is the fallback for points below reach (the ground).
+        private static void StandToHold(Vector3 point, float hold, Vector3 from, float range = 0.9f)
+        {
+            StandAndLook(point, Mathf.Min(range, hold), from);
+            float dy = Pl.Cam.transform.position.y - point.y;
+            if (Mathf.Abs(dy) >= hold - 0.05f) { StandAndLook(point, range, from); return; }
+            StandAndLook(point, Mathf.Sqrt(hold * hold - dy * dy), from);
         }
 
         private static string DescribeLook(fpscontroller pl)

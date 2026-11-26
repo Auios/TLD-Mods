@@ -48,6 +48,9 @@ namespace MountAnything
                     var pre = new HarmonyMethod(typeof(RevampLink), nameof(BeforeApply));
                     harmony.Patch(sync, prefix: pre);
                     harmony.Patch(req, prefix: pre);
+                    var poseM = AccessTools.Method(AccessTools.TypeByName("TLDRevamp.Net.EntityAttachments"), "ApplyAttachPose");
+                    if (poseM != null) harmony.Patch(poseM, postfix: new HarmonyMethod(typeof(RevampLink), nameof(AfterRevampPose)));
+                    else Plugin.Log.LogWarning("RevaMP: no ApplyAttachPose; a live mount may show a little off for other players");
                     Active = true;
                 }
                 RegisterWithRevamp();
@@ -90,6 +93,46 @@ namespace MountAnything
             catch (Exception ex) { Plugin.Log.LogWarning("RevaMP attach: " + ex.Message); }
         }
 
+        /// After RevaMP put an attached item at its own copy of the pose: that is relative to the mount point's parent,
+        /// which on this machine can be another collider than on the mounting one (the point is made anew from the
+        /// record): a katana on a car 81 mm off, a sponge on a house 610 mm (two-game tests, 2026-11-24). It can come
+        /// after this mod's pose for the item; the mod's pose wins.
+        private static void AfterRevampPose(attachablescript at)
+        {
+            if (at == null || _known.Count == 0 && !Watch) return;
+            try { AfterRevampPoseNow(at); }
+            catch (Exception e) { Plugin.Log.LogWarning("RevaMP pose: " + e.Message); }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void AfterRevampPoseNow(attachablescript at)
+        {
+            uint net = TLDRevamp.Multiplayer.MpApi.WorldObjectId(at.gameObject);
+            if (Watch) Plugin.Log.LogInfo("RevaMP put " + at.name + " (net " + net + ") at its attach pose, frame " + Time.frameCount + "; a pose of this mod for it: " + _known.ContainsKey(net) + ", one waiting: " + _pending.ContainsKey(net));
+            if (net != 0 && _known.TryGetValue(net, out var k)) Reapply(net, k);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void Reapply(uint net, PendingPose k)
+        {
+            if (Time.realtimeSinceStartup > k.Until) { _known.Remove(net); return; }
+            var go = TLDRevamp.Multiplayer.MpApi.FindWorldObject(net);
+            var ts = go != null ? go.GetComponent<tosaveitemscript>() : null;
+            var at = ts != null ? ts.attachable : null;
+            if (at == null || !at.attached || at.point == null) { _known.Remove(net); return; }
+            var pt = Frame(at);
+            var np = pt.position + pt.rotation * k.Pos; var nq = pt.rotation * k.Rot;
+            float moved = (ts.transform.position - np).magnitude;
+            if (moved < 1e-4f && Quaternion.Angle(ts.transform.rotation, nq) < 0.01f) return;
+            if (Watch) Plugin.Log.LogInfo("pose re-applied to " + ts.name + " after RevaMP's attach: it had moved it " + (moved * 1000f).ToString("F1") + " mm");
+            ts.transform.SetPositionAndRotation(np, nq);
+            PosesReapplied++;
+        }
+
+        /// Poses applied in the last seconds: RevaMP may apply its own after them (a replay of the same attach).
+        private static readonly Dictionary<uint, PendingPose> _known = new Dictionary<uint, PendingPose>();
+        public static long PosesReapplied;
+
         // ------------------------------------------------------------------ the item's pose on its mount point
         // RevaMP's attach message is the game's save record: the point the item is on, not the item's own pose there.
         // The game keeps the item where it is when it attaches it from a record (attachablescript.tempDontMoveAtAttach),
@@ -119,7 +162,21 @@ namespace MountAnything
             });
         }
 
-        /// The machine that mounted the item: its pose on the point, to everyone else.
+        /// What a pose is relative to: what the game's mount record names, the same object on every machine - the item it
+        /// is mounted on, or the building - else the point itself (on the ground: a point of its own). Each game makes its
+        /// own point: relative to the point, a katana mounted on a car showed 3.65 degrees and 5 mm off on the joiner;
+        /// relative to the collider the point hangs on, a sponge on a building 90 mm off on the host (the point was made
+        /// under one of the building's parts there, under another here) (2026-11-24).
+        private static Transform Frame(attachablescript at)
+        {
+            var to = at.AttachedToTosave();
+            if (to != null) return to.transform;
+            var poi = at.AttachedToPOI();
+            if (poi != null) return poi.transform;
+            return at.point;
+        }
+
+        /// The machine that mounted the item: its pose on what it is mounted on, to everyone else.
         internal static void SendPose(attachablescript at)
         {
             if (!Registered || _mod == null || at == null || !at.attached || at.point == null) return;
@@ -133,7 +190,8 @@ namespace MountAnything
             if (!TLDRevamp.Multiplayer.MpApi.InSession) return;
             uint net = TLDRevamp.Multiplayer.MpApi.WorldObjectId(at.gameObject);
             if (net == 0) return;
-            var pt = at.point; var t = at.transform;
+            _known.Remove(net);   // mounted here anew: a pose from elsewhere no longer applies
+            var pt = Frame(at); var t = at.transform;
             var lp = Quaternion.Inverse(pt.rotation) * (t.position - pt.position);
             var lq = Quaternion.Inverse(pt.rotation) * t.rotation;
             if (TLDRevamp.Multiplayer.MpApi.SendEvent((TLDRevamp.Multiplayer.ModInfo)_mod, "pose", w =>
@@ -143,8 +201,37 @@ namespace MountAnything
         }
 
         /// Called every frame: poses whose item is now mounted here are applied; old ones are dropped.
+        /// The test: after a pose is applied, report the first time anything moves the item off it (10 s).
+        internal static bool Watch;
+        private class Watched { public Transform T, F; public Vector3 Lp, Tw, Fw; public Quaternion Lq; public float Since; public int Frame; }
+        private static readonly List<Watched> _watch = new List<Watched>();
+
+        private static string Path(Transform t)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (; t != null; t = t.parent) { if (sb.Length > 0) sb.Append(" < "); sb.Append(t.name); var rb = t.GetComponent<Rigidbody>(); if (rb != null) sb.Append(rb.isKinematic ? "[kin rb]" : "[rb]"); }
+            return sb.ToString();
+        }
+
+        internal static void CheckWatch(string when)
+        {
+            for (int i = _watch.Count - 1; i >= 0; i--)
+            {
+                var w = _watch[i];
+                if (w.T == null || w.F == null || Time.realtimeSinceStartup - w.Since > 10f) { _watch.RemoveAt(i); continue; }
+                var lp = Quaternion.Inverse(w.F.rotation) * (w.T.position - w.F.position); var lq = Quaternion.Inverse(w.F.rotation) * w.T.rotation;
+                float d = (lp - w.Lp).magnitude * 1000f, a = Quaternion.Angle(lq, w.Lq);
+                if (d < 1f && a < 0.05f) continue;
+                Plugin.Log.LogInfo("pose watch: " + w.T.name + " moved off the applied pose by " + d.ToString("F1") + " mm, " + a.ToString("F2") + " deg, " +
+                                   (Time.frameCount - w.Frame) + " frames after (" + when + "); the item moved " + ((w.T.position - w.Tw).magnitude * 1000f).ToString("F1") + " mm, its frame " + w.F.name + " " +
+                                   ((w.F.position - w.Fw).magnitude * 1000f).ToString("F1") + " mm; under the frame " + w.T.IsChildOf(w.F) + "; path " + Path(w.T));
+                _watch.RemoveAt(i);
+            }
+        }
+
         internal static void ApplyPending()
         {
+            if (_watch.Count > 0) CheckWatch("update");
             if (_pending.Count == 0) return;
             try { ApplyPendingNow(); }
             catch (Exception e) { Plugin.Log.LogWarning("RevaMP pose: " + e.Message); _pending.Clear(); }
@@ -161,9 +248,14 @@ namespace MountAnything
                 var at = ts != null ? ts.attachable : null;
                 if (at != null && at.attached && at.point != null)
                 {
-                    var pt = at.point;
-                    ts.transform.SetPositionAndRotation(pt.position + pt.rotation * kv.Value.Pos, pt.rotation * kv.Value.Rot);
+                    var pt = Frame(at);
+                    var np = pt.position + pt.rotation * kv.Value.Pos; var nq = pt.rotation * kv.Value.Rot;
+                    if (Watch) Plugin.Log.LogInfo("pose applied to " + ts.name + " (net " + kv.Key + ") on " + pt.name + ": moved it " + ((ts.transform.position - np).magnitude * 1000f).ToString("F1") + " mm, " +
+                                                  Quaternion.Angle(ts.transform.rotation, nq).ToString("F2") + " deg (frame " + Time.frameCount + ")");
+                    ts.transform.SetPositionAndRotation(np, nq);
+                    if (Watch) _watch.Add(new Watched { T = ts.transform, F = pt, Lp = kv.Value.Pos, Lq = kv.Value.Rot, Since = Time.realtimeSinceStartup, Frame = Time.frameCount, Tw = np, Fw = pt.position });
                     PosesApplied++;
+                    _known[kv.Key] = new PendingPose { Pos = kv.Value.Pos, Rot = kv.Value.Rot, Until = Time.realtimeSinceStartup + 20f };
                     (done ??= new List<uint>()).Add(kv.Key);
                 }
                 else if (Time.realtimeSinceStartup > kv.Value.Until) { PosesExpired++; (done ??= new List<uint>()).Add(kv.Key); }
