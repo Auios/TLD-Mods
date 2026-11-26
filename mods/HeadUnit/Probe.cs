@@ -297,6 +297,34 @@ namespace HeadUnit
         /// The tools' downloads, as the dialog's DOWNLOAD does.
         public static string GetTools() { Ytdlp.Download(); return Ytdlp.Status; }
 
+        /// The sign-in (SignIn.cs): given or not (never the cookies), and whether YouTube asked for it last.
+        public static string SignInState() => $"signed in {Ytdlp.SignedIn}, profile {(SignIn.UsableProfile(Plugin.SignInProfile.Value) ? System.IO.Path.GetFileName(Plugin.SignInProfile.Value) : "none")}, "
+            + $"cookies.txt {System.IO.File.Exists(System.IO.Path.Combine(Ytdlp.Dir, SignIn.CookiesTxt))}, lookup asked {Ytdlp.ListBotCheck}, pane {Nearest(true)?.PaneNow.ToString() ?? "none"}";
+        /// Where SIGN IN would look on this machine and how many Firefox-format profiles each place has: the folders'
+        /// last parts only, nothing read from them (headunit.py --signin: the Proton home found through drive Z:).
+        public static string SignInLook()
+        {
+            string home = SignIn.WineHome(System.Environment.GetEnvironmentVariable);
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (var r in SignIn.FirefoxRoots(System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData), home))
+            {
+                if (!System.IO.Directory.Exists(r)) continue;
+                int n = 0;
+                foreach (var d in System.IO.Directory.GetDirectories(r)) if (System.IO.File.Exists(System.IO.Path.Combine(d, "cookies.sqlite"))) n++;
+                string tail = r.Replace('\\', '/'); int cut = home != null && tail.StartsWith(home.Replace('\\', '/')) ? home.Length : tail.Length - 30;
+                parts.Add($"~{tail.Substring(System.Math.Max(0, cut))}: {n}");
+            }
+            return $"wine home {(home != null)}; " + (parts.Count == 0 ? "no profile folders" : string.Join(", ", parts.ToArray()));
+        }
+        /// Where SIGN IN looks instead (Ytdlp.ProfileRoots), a Linux path made Proton's (drive Z:); "-": back to the
+        /// machine's own places.
+        public static string SignInRoots(string unixPath)
+        {
+            Ytdlp.ProfileRoots = unixPath == "-" ? null : (System.IO.Directory.Exists(@"Z:\") && unixPath.StartsWith("/") ? "Z:" + unixPath.Replace('/', '\\') : unixPath);
+            return "roots " + (Ytdlp.ProfileRoots ?? "the machine's own");
+        }
+        public static string SignOut() { Plugin.SignInProfile.Value = ""; return "signed out"; }
+
         public static string Tools() => $"yt-dlp {Ytdlp.Present}, ffmpeg {Ytdlp.HasFfmpeg}, Spotify busy {Spotify.Busy}, downloading {Ytdlp.Downloading}: {Ytdlp.Status}; flash {Panel.Flashing}";
 
         /// The mounted unit's video: ready, playing, where, why not.
