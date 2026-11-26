@@ -69,7 +69,9 @@ namespace HeadUnit
         /// The unit whose link is being typed (keys go to it, the game takes none: Controls.InputSelected).
         public static UnitBehaviour TypingInto;
         private float _savedVolume = 0.3f;
-        private float _findAt, _glueAt;
+        private float _findAt, _glueAt, _nearAt;
+        /// How long no player has been near before the screen's texture goes (Touch.Release).
+        public static readonly float ReleaseS = 10f;
 
         private void Awake()
         {
@@ -95,12 +97,19 @@ namespace HeadUnit
             // stuck or not (a stick replayed from another machine, a loaded save): the body hidden or shown
             if (Time.realtimeSinceStartup >= _glueAt) { _glueAt = Time.realtimeSinceStartup + 0.5f; bool stuck = Glue.Stuck(this); if (stuck == BodyShown) Glue.Body(this, !stuck); }
             bool near = (pl.transform.position - transform.position).sqrMagnitude < ActiveRangeM * ActiveRangeM;
-            if (!near) { _video?.Hold(); return; }
+            if (!near)
+            {
+                _video?.Hold();
+                if (Time.realtimeSinceStartup - _nearAt > ReleaseS) Touch?.Release();
+                return;
+            }
+            _nearAt = Time.realtimeSinceStartup;
 
             if (Time.realtimeSinceStartup >= _findAt) { _findAt = Time.realtimeSinceStartup + 1f; Bind(); }
             var s = State;
             FollowScreen(s);
             SendLink(false);
+            ClearStaleSearch(s);
             bool radioOn = Radio == null || Radio.ON;
             bool powered = Powered;
 
@@ -262,7 +271,7 @@ namespace HeadUnit
                 int at = i;
                 var q = s.Queue[i];
                 string id = "q" + (i - first);
-                m.Rows.Add(new ScreenModel.Row { Id = id, Lead = (i + 1).ToString("00"), Text = q.Title, Tail = q.Duration > 0f ? Clock(q.Duration) : "", On = i == s.Index });
+                m.Rows.Add(new ScreenModel.Row { Id = id, Lead = (i + 1).ToString("00"), Text = q.Title, Tail = Video.LengthOf(q) > 0f ? Clock(Video.LengthOf(q)) : "", On = i == s.Index });
                 _act[id] = () => Edit(w => { w.Byte((byte)Op.Jump); w.VarUInt((uint)at); });
             }
             m.RowsTop = first; m.RowsCount = s.Queue.Count; m.QueueCount = s.Queue.Count;
@@ -390,11 +399,27 @@ namespace HeadUnit
         /// The + ADD screen's search bar opened holding `text`, for everyone in the car.
         private void OpenBar(string text)
         {
+            // clipped as the owner clips it, and this screen changed only when the edit goes out: a longer paste was
+            // refused before it was sent, and this player's screen stayed on the bar while the car's stayed on the results
+            text = UnitState.Clip(text ?? "", UnitState.TextBytes);
+            if (!Edit(w => { w.Byte((byte)Op.AddOpen); w.String(text); })) return;
             _tools = false; _listOpen = false; _full = false;
             if (TypingInto == this) TypingInto = null;
             _link = text; _linkSent = true;
             _add = AddScreen.Bar;
-            Edit(w => { w.Byte((byte)Op.AddOpen); w.String(text); });
+        }
+
+        /// A search that says "searching" for SearchStaleS with none running here (the player who started it left, or lost
+        /// its answer): its word taken back for everyone, so the bar doesn't say SEARCHING for good.
+        public static readonly float SearchStaleS = 45f;
+        private float _searchSeenAt = -1f;
+        private void ClearStaleSearch(UnitState s)
+        {
+            if (s == null || !s.Searching || _searching) { _searchSeenAt = -1f; return; }
+            if (_searchSeenAt < 0f) { _searchSeenAt = Time.realtimeSinceStartup; return; }
+            if (Time.realtimeSinceStartup - _searchSeenAt < SearchStaleS) return;
+            _searchSeenAt = Time.realtimeSinceStartup;   // asked again at most every SearchStaleS
+            Edit(w => { w.Byte((byte)Op.AddSearching); w.Bool(false); });
         }
 
         /// What the bar holds: what this player is typing, else the car's.

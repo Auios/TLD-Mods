@@ -150,6 +150,11 @@ namespace HeadUnit
     {
         public override string Name => "unitstate";
         public override int MaxRecordBytes => 32 * 1024;   // 200 queued videos with titles
+        /// RevaMP API 6: an accepted edit goes to the other players as the edit (tens of bytes), not as the whole record
+        /// with its queue (kilobytes per keystroke in the shared bar). OnEdit changes nothing but the record, from the
+        /// record, the edit, the player and MpApi.SessionTime (the owner's time of the edit on every machine). An older
+        /// RevaMP never asks, and sends the record as before.
+        public override bool ReplayEdits => true;
 
         public override GameObject Create(RecordReader record, Vector3 position, Quaternion rotation)
         {

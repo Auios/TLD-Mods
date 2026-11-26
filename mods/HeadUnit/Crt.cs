@@ -335,7 +335,8 @@ namespace HeadUnit
 
         // ---- lighting it ----
 
-        private readonly float[] _blurA = new float[W * H], _blurB = new float[W * H];
+        // the glow's work buffers (2.8 MB): one pair for every canvas, which are drawn one at a time on the main thread
+        private static float[] _blurA, _blurB;
         private static float[] _vignette;
 
         /// The canvas lit in the phosphor (r, g, b) into `rgba` (W × H × 4): a soft glow around what is lit, every
@@ -377,6 +378,7 @@ namespace HeadUnit
         /// A box blur of the canvas (radius `r`, across then down) into _blurA, 0 to 1.
         private void Blur(int r)
         {
+            if (_blurA == null) { _blurA = new float[W * H]; _blurB = new float[W * H]; }
             float n = 2 * r + 1;
             for (int y = 0; y < H; y++)
             {

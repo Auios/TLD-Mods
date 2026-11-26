@@ -18,13 +18,16 @@ middle of stays their own: the queue list, FULL, BIG.
   join then checks every player has the same mod.
 - **State as a record.** `State.cs`: what a car's unit shares (the queue, what plays and from when, the screen) is
   one record, written and read by `UnitStateType`, with a size cap (`MaxRecordBytes`). Edits from players go
-  through `OnEdit`, which checks them before applying.
+  through `OnEdit`, which checks them before applying. With RevaMP's mod API 6 (`ReplayEdits`), an accepted edit
+  reaches the other players as the edit itself, a few dozen bytes, and each replays it; an older RevaMP sends the
+  whole record as before.
 - **Sharing an object tied to a game object.** `UnitBehaviour.cs` makes sure the car is shared
   (`MpApi.ShareWorldObject`) and shares the unit's state under the car's session id (`MpApi.Share`,
   `MpApi.WorldObjectId`).
 - **Shared timing, no streaming.** Playback is a start position on the session clock (`MpApi.SessionTime`). Each
-  machine downloads and plays the video itself, on the audio clock, and seeks when it is more than a second off
-  (`Video.cs`; changing the playback speed made the sound choppy). Only video ids pass between players.
+  machine downloads and plays the video itself, on the audio clock (game time without sound output), and seeks when
+  it is more than a second off, at most a few times in half a minute (`Video.cs`; changing the playback speed made the
+  sound choppy). Only video ids pass between players.
 - **Running without RevaMP.** With no RevaMP (`MpApi.Available` false) it works in single player.
 - **Game items from the game's own.** `Units.cs` clones the game's radio item into new items with their own ids,
   so the game saves, loads and spawns them, and RevaMP shares them with the car.
@@ -64,7 +67,9 @@ responsibility: follow YouTube's terms of service and the rights of whoever made
 
 When a player first adds a link (+ ADD), the unit offers to download yt-dlp and Deno from their official GitHub
 releases, and ffmpeg (an LGPL build) for anything above 360p, each checked against its release's checksums. Nothing
-is downloaded until the player accepts on the screen.
+is downloaded until the player accepts on the screen. yt-dlp is its unpacked Windows build (`yt-dlp_win.zip`), kept
+in `BepInEx/config/HeadUnit/yt-dlp-<checksum>`: the one-file `yt-dlp.exe` from 2026.11.23 on doesn't start under
+Proton.
 
 Every player needs these programs on their own machine: nothing passes between players but video ids. A player who
 joins a car where videos already play sees GET TOOLS in place of + ADD until they have them, and the video starts as

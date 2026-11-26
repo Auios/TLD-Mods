@@ -30,10 +30,12 @@ namespace HeadUnit
         private MeshRenderer _canvas, _scan;
         private Material _canvasMat, _scanMat;
         private Texture2D _canvasTex, _scanTex;
-        private readonly Crt _crt = new Crt();
+        // one canvas and one pixel buffer for every unit (a unit's screen is drawn whole, then copied to its texture):
+        // each unit had its own, with its texture, about 8 MB, and a looted town holds many units
+        private static readonly Crt Canvas = new Crt();
+        private static byte[] _rgba;
         private readonly Screens.Layout _layout = new Screens.Layout();
-        private byte[] _rgba;
-        private string _key;
+        private string _key, _texts = "";
         private Screens.Area _window;
         private readonly List<Button> _buttons = new List<Button>();
 
@@ -69,14 +71,11 @@ namespace HeadUnit
             Root.localScale = new Vector3(1f / Mathf.Max(ps.x, 1e-4f), 1f / Mathf.Max(ps.y, 1e-4f), 1f / Mathf.Max(ps.z, 1e-4f));
             if (!_looked) { _looked = true; _tinting = Shader.Find("Sprites/Default"); Plugin.Log.LogInfo("head unit picture shader: " + PictureShader); }
 
-            // the canvas: mipmapped, so the scanlines even out from the seat instead of shimmering
-            _canvasTex = new Texture2D(Crt.W, Crt.H, TextureFormat.RGBA32, true)
-                { name = "HeadUnitCrt", filterMode = FilterMode.Trilinear, anisoLevel = 4, wrapMode = TextureWrapMode.Clamp };
+            // the canvas's texture is made when a player first comes near (Present) and goes when none has been for a while
             _canvasMat = Look.ScreenMaterial(unit.Radio);
-            _canvasMat.mainTexture = _canvasTex;
+            _canvasMat.mainTexture = Look.Pixel(Color.black);
             _canvas = Quad("Canvas", -0.001f, _canvasMat);
             _canvas.transform.localScale = new Vector3(W, H, 1f);
-            _rgba = new byte[Crt.W * Crt.H * 4];
 
             ContentMat = _tinting != null ? new Material(_tinting) : Look.ScreenMaterial(unit.Radio);
             ContentMat.mainTexture = Look.Pixel(Color.black);
@@ -124,11 +123,21 @@ namespace HeadUnit
         public void Present(ScreenModel m, Texture content, float aspect, bool tint, Dictionary<string, Action> actions)
         {
             string key = m.Key();
+            if (_canvasTex == null)
+            {
+                // mipmapped, so the scanlines even out from the seat instead of shimmering
+                _canvasTex = new Texture2D(Crt.W, Crt.H, TextureFormat.RGBA32, true)
+                    { name = "HeadUnitCrt", filterMode = FilterMode.Trilinear, anisoLevel = 4, wrapMode = TextureWrapMode.Clamp };
+                _canvasMat.mainTexture = _canvasTex;
+                _key = null;
+            }
             if (key != _key)
             {
                 _key = key;
-                Screens.Draw(m, _crt, _layout);
-                _crt.Compose(m.R, m.G, m.B, _rgba, flipY: true);
+                if (_rgba == null) _rgba = new byte[Crt.W * Crt.H * 4];
+                Screens.Draw(m, Canvas, _layout);
+                _texts = string.Join(" | ", Canvas.Texts);
+                Canvas.Compose(m.R, m.G, m.B, _rgba, flipY: true);
                 _canvasTex.SetPixelData(_rgba, 0);
                 _canvasTex.Apply(true);
                 _window = _layout.Content;
@@ -159,6 +168,16 @@ namespace HeadUnit
             }
         }
 
+        /// No player near for a while: the canvas's texture goes (the next Present makes it again).
+        public void Release()
+        {
+            if (_canvasTex == null) return;
+            _canvasMat.mainTexture = Look.Pixel(Color.black);
+            Destroy(_canvasTex); _canvasTex = null; _key = null;
+            if (Content != null) Content.enabled = false;
+            if (_scan != null) _scan.enabled = false;
+        }
+
         /// An area of the 800 × 440 grid on the screen's face, in metres from its centre (y up).
         private Rect Metres(Screens.Area a)
         {
@@ -179,7 +198,7 @@ namespace HeadUnit
         }
 
         /// What the screen says now (tests).
-        public string ScreenText => string.Join(" | ", _crt.Texts);
+        public string ScreenText => _texts;
 
         /// The characters of `s` the screen's font can't draw (tests).
         public string Missing(string s)

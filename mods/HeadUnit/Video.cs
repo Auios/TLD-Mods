@@ -30,6 +30,10 @@ namespace HeadUnit
     /// players are also spaced out (MakeGapS): a burst of skips makes only the last one.
     public sealed class Video
     {
+        /// The lengths this machine's players found for queued links without one (UnitBehaviour's queue list).
+        public static readonly System.Collections.Generic.Dictionary<string, float> Lengths = new System.Collections.Generic.Dictionary<string, float>();
+        public static float LengthOf(QueueItem q) => q == null ? 0f : q.Duration > 0f ? q.Duration : q.VideoId != null && Lengths.TryGetValue(q.VideoId, out float l) ? l : 0f;
+
         public VideoPlayer Player { get; private set; }
         public AudioSource Audio { get; private set; }
         public RenderTexture Texture { get; private set; }
@@ -41,6 +45,24 @@ namespace HeadUnit
         /// Width over height of the picture (16:9 until the video says).
         public float Aspect = 16f / 9f;
         public static readonly float SeekOverS = 1.0f, RetryS = 30f, SeekGapS = 3f;
+        /// Catch-up seeks a player gets in CatchUpWindowS before it is left to drift: a player whose clock stands still
+        /// was sought every SeekGapS for good, the repeated seeks that crashed Proton's media framework.
+        public static readonly int MaxCatchUps = 4;
+        public static readonly float CatchUpWindowS = 30f;
+        private readonly Queue<float> _catchUps = new Queue<float>();
+
+        // The audio clock: where it stands still (no sound device, as Wine can have none; a stalled mixer) a player on it
+        // stands still too. New players take unscaled game time then. Read every frame a video follows.
+        private static double _dspSeen = -1; private static float _dspSeenAt;
+        public static bool AudioClockRunning
+        {
+            get
+            {
+                double d = AudioSettings.dspTime; float now = Time.realtimeSinceStartup;
+                if (d != _dspSeen) { _dspSeen = d; _dspSeenAt = now; }
+                return AudioSettings.outputSampleRate > 0 && now - _dspSeenAt < 1f;
+            }
+        }
         public static readonly int MaxTextureWidth = 1920;
         public static bool Trace = false;   // makes, drops and seeks in the log
         public static float MakeGapS = 1.5f;
@@ -225,7 +247,7 @@ namespace HeadUnit
             p.source = VideoSource.Url;
             p.waitForFirstFrame = true;
             p.skipOnDrop = true;
-            p.timeUpdateMode = VideoTimeUpdateMode.DSPTime;
+            p.timeUpdateMode = AudioClockRunning ? VideoTimeUpdateMode.DSPTime : VideoTimeUpdateMode.UnscaledGameTime;
             p.seekCompleted += _ => { if (p == Player) _seeking = false; };
             var a = _host.AddComponent<AudioSource>();
             a.spatialBlend = 1f; a.minDistance = 1.5f; a.maxDistance = 25f; a.rolloffMode = AudioRolloffMode.Linear;
@@ -261,7 +283,7 @@ namespace HeadUnit
             VideoId = id;
             var p = Take(id, out bool reused);
             if (Trace) Plugin.Log.LogInfo($"video make {id} reused {reused} pool {_pool.Count}");
-            Player = p; Audio = _audioOf[p]; Audio.mute = false; _seeking = false; _lastSeek = -100f;
+            Player = p; Audio = _audioOf[p]; Audio.mute = false; _seeking = false; _lastSeek = -100f; _catchUps.Clear();
             _idOf[p] = id;
             if (reused && p.isPrepared) { Problem = null; MakeTexture(p); return; }   // open already: on to the shared position
             if (reused) return;   // still preparing: prepareCompleted carries on
@@ -341,7 +363,13 @@ namespace HeadUnit
             }
             float want = s.Position(now);
             float len = (float)Player.length;
-            if (len > 0 && cur.Duration <= 0f) cur.Duration = len;   // local only; the owner learns it from its own player
+            // a link's length as this machine's player found it, for the queue's list: kept here, not in the shared
+            // queue, whose copy must stay the owner's (a replayed edit is checked against it); the owner learns it at the end
+            if (len > 0 && cur.Duration <= 0f && cur.VideoId != null && !Lengths.ContainsKey(cur.VideoId))
+            {
+                if (Lengths.Count > 512) Lengths.Clear();
+                Lengths[cur.VideoId] = len;
+            }
             if (len > 0 && want >= len - 0.25f)
             {
                 if (Player.isPlaying) Player.Pause();
@@ -365,7 +393,14 @@ namespace HeadUnit
             if (!Player.isPlaying) { SeekTo(want, force: true); Player.Play(); return; }
             if (Time.realtimeSinceStartup < _nextCheck) return;
             _nextCheck = Time.realtimeSinceStartup + 0.25f;
-            if (Mathf.Abs(want - (float)Player.time) > SeekOverS) SeekTo(want);
+            _ = AudioClockRunning;
+            if (Mathf.Abs(want - (float)Player.time) > SeekOverS)
+            {
+                float t = Time.realtimeSinceStartup;
+                while (_catchUps.Count > 0 && t - _catchUps.Peek() > CatchUpWindowS) _catchUps.Dequeue();
+                if (_catchUps.Count >= MaxCatchUps) return;   // its clock doesn't keep up: left to drift a while
+                if (SeekTo(want)) { _catchUps.Enqueue(t); if (_catchUps.Count == MaxCatchUps) Plugin.Log.LogWarning($"video {VideoId}: {MaxCatchUps} catch-up seeks in {CatchUpWindowS:F0} s, left to drift (audio clock running: {AudioClockRunning})"); }
+            }
         }
 
         /// One seek at a time, at most one every SeekGapS (unless forced: starting to play).

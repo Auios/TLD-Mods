@@ -22,6 +22,7 @@ static class HeadUnitStateTest
         AddEdits();
         Queue();
         FullRecord();
+        Replayed();
         Console.WriteLine("Head Unit state: " + checks + " checks passed");
         return 0;
     }
@@ -160,6 +161,33 @@ static class HeadUnitStateTest
         Check(new UnitState().Read(Reader(w)), "and reads back");
     }
 
+    /// RevaMP API 6 replays an accepted edit on every copy and checks the copy against the owner's record: the same
+    /// edits at the same session times must leave the same bytes, queue and + ADD screen included.
+    static void Replayed()
+    {
+        Check(new UnitStateType().ReplayEdits, "the state's edits are replayed on copies (API 6)");
+        var steps = new List<(Action<RecordWriter> w, int from, double now)>
+        {
+            (w => { w.Byte((byte)Op.Add); w.VarUInt(2); w.String("dQw4w9WgXcQ"); w.String("a"); w.Float(10f); w.String("abcdefghijk"); w.String("b"); w.Float(0f); }, 1, 5),
+            (w => w.Byte((byte)Op.Play), 2, 6),
+            (w => { w.Byte((byte)Op.AddOpen); w.String("lo"); }, 1, 7.25),
+            (w => { w.Byte((byte)Op.AddText); w.String("lofi beats"); }, 1, 7.5),
+            (w => { w.Byte((byte)Op.AddSearching); w.Bool(true); }, 1, 8),
+            (w => w.Byte((byte)Op.Pause), 0, 9.125),
+            (w => w.Byte((byte)Op.Next), 2, 11),
+        };
+        var owner = new UnitState { Car = 7 }; var copy = new UnitState { Car = 7 };
+        foreach (var st in steps)
+        {
+            bool a = Edit(owner, st.w, st.from, st.now);
+            if (a) Edit(copy, st.w, st.from, st.now);   // only what the owner accepted goes to the copies
+        }
+        var wo = new RecordWriter(); owner.Write(wo); var wc = new RecordWriter(); copy.Write(wc);
+        byte[] bo = wo.ToArray(), bc = wc.ToArray();
+        Check(bo.Length == bc.Length && bo.Length > 0, "a copy replaying the accepted edits writes as many bytes as the owner");
+        Check(System.Linq.Enumerable.SequenceEqual(bo, bc), "and the same bytes (its hash matches the owner's)");
+    }
+
     static bool Edit(UnitState s, Action<RecordWriter> write, int from = 0, double now = 100)
     {
         var w = new RecordWriter(); write(w);
@@ -244,6 +272,7 @@ namespace TLDRevamp.Multiplayer
         public abstract void Write(UnityEngine.GameObject obj, RecordWriter record);
         public abstract void Read(UnityEngine.GameObject obj, RecordReader record);
         public virtual bool OnEdit(SharedObject obj, RecordReader edit, int fromPlayer) => false;
+        public virtual bool ReplayEdits => false;   // RevaMP API 6
     }
     public sealed class SharedObject { public UnityEngine.GameObject GameObject; }
     public static class MpApi { public static double SessionTime => 0; }
