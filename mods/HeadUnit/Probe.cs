@@ -240,9 +240,32 @@ namespace HeadUnit
         {
             var u = Nearest(true);
             var a = u?.VideoAudio;
-            float peak = 0f;
-            if (a != null) { var d = new float[1024]; a.GetOutputData(d, 0); foreach (var x in d) peak = Mathf.Max(peak, Mathf.Abs(x)); }
-            return $"volume {Plugin.VideoVolume.Value:F1} source {(a != null ? a.volume.ToString("F2") : "none")} peak {peak:F3} convert {Plugin.Convert.Value}";
+            float peak = 0f, tapped = 0f;
+            if (a != null)
+            {
+                var d = new float[1024]; a.GetOutputData(d, 0); foreach (var x in d) peak = Mathf.Max(peak, Mathf.Abs(x));
+                // the samples as they leave the source, before the listener and the mix: a test game is muted and its
+                // output, which GetOutputData reads, stays silent (the first call adds the tap; later ones read it)
+                var tap = a.GetComponent<SoundTap>();
+                if (tap == null) tap = a.gameObject.AddComponent<SoundTap>();
+                tapped = tap.Peak; tap.Peak = 0f;
+            }
+            var vp = u?.VideoPlayerNow;
+            string why = a == null ? "" : $"; listener {AudioListener.volume:F2}{(AudioListener.pause ? " paused" : "")}, source {(a.isPlaying ? "playing" : "stopped")}{(a.mute ? " muted" : "")} on {a.gameObject.GetComponents<AudioSource>().Length} sources" +
+                (vp != null ? $", player audio {vp.audioOutputMode} tracks {vp.audioTrackCount} ch {(vp.audioTrackCount > 0 ? vp.GetAudioChannelCount(0) : 0)} enabled {(vp.audioTrackCount > 0 && vp.IsAudioTrackEnabled(0))} target {(vp.GetTargetAudioSource(0) == a)}" : ", no player");
+            return $"volume {Plugin.VideoVolume.Value:F1} source {(a != null ? a.volume.ToString("F2") : "none")} peak {Mathf.Max(peak, tapped):F3} (output {peak:F3}, source {tapped:F3}) convert {Plugin.Convert.Value}{why}";
+        }
+
+        /// Tests only (Sound): the loudest sample through the source since the last read. Runs on the audio thread.
+        private sealed class SoundTap : MonoBehaviour
+        {
+            public volatile float Peak;
+            private void OnAudioFilterRead(float[] data, int channels)
+            {
+                float p = 0f;
+                for (int i = 0; i < data.Length; i++) { float v = data[i] < 0f ? -data[i] : data[i]; if (v > p) p = v; }
+                if (p > Peak) Peak = p;
+            }
         }
         /// The mounted unit's NAV map as drawn (TheLongDrive_Data/headunit_map_<name>.png), and its pixels by colour:
         /// the main road's, the other roads'.

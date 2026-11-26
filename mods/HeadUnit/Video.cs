@@ -58,10 +58,14 @@ namespace HeadUnit
         // The audio clock: where it stands still (no sound device, as Wine can have none; a stalled mixer) a player on it
         // stands still too. New players take unscaled game time then. Read every frame a video follows.
         private static double _dspSeen = -1; private static float _dspSeenAt;
+        /// Test / A-B switch: players are made on game time as if the audio clock stood still (a machine without sound
+        /// output can't be made on a test machine whose Steam needs its sound server).
+        public static bool ForceGameClock;
         public static bool AudioClockRunning
         {
             get
             {
+                if (ForceGameClock) return false;
                 double d = AudioSettings.dspTime; float now = Time.realtimeSinceStartup;
                 if (d != _dspSeen) { _dspSeen = d; _dspSeenAt = now; }
                 return AudioSettings.outputSampleRate > 0 && now - _dspSeenAt < 1f;
@@ -231,6 +235,14 @@ namespace HeadUnit
             Player = null; Audio = null; Texture = null;
         }
 
+        /// A kept player with this video open (prepared or preparing), that Take would hand back.
+        private bool Pooled(string id)
+        {
+            foreach (var k in _pool)
+                if (k != null && _idOf.TryGetValue(k, out var kid) && kid == id && !_failed.Contains(k) && !_placeholder.Contains(k)) return true;
+            return false;
+        }
+
         /// The kept player that already has this video open, or a new one. A kept player is never given another url:
         /// that crashed like destroying one (pooled players reused for the next song, huprev.py 2026-10-15).
         private VideoPlayer Take(string id, out bool reused)
@@ -336,6 +348,9 @@ namespace HeadUnit
                 Drop();
                 _wantId = cur.VideoId; VideoId = null; _endedSentAt = -100f; Problem = "loading...";
                 string id = cur.VideoId;
+                // a player kept from playing it before (back to an earlier song) has it open: no file needed. Fetching it
+                // first meant a whole new download (its file goes soon after it stops), and YouTube's checks on the way
+                if (Pooled(id)) { _makeId = id; _makeUrl = null; return; }
                 Ytdlp.Resolve(id, url =>
                 {
                     if (_wantId != id) return;   // moved on meanwhile
@@ -347,7 +362,10 @@ namespace HeadUnit
             if (_makeId != null && _makeId == _wantId && Time.realtimeSinceStartup - _lastMake >= MakeGapS)
             {
                 string id = _makeId, url = _makeUrl;
-                _makeId = null; _makeUrl = null; _lastMake = Time.realtimeSinceStartup;
+                _makeId = null; _makeUrl = null;
+                // the kept player went meanwhile (Prune): its file fetched after all, next frame
+                if (url == null && !Pooled(id)) { _wantId = null; VideoId = null; return; }
+                _lastMake = Time.realtimeSinceStartup;
                 Make(id, url);
             }
             if (Player == null || !Player.isPrepared) return;

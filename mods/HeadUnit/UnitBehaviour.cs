@@ -777,6 +777,7 @@ namespace HeadUnit
         public bool VideoReady => _video != null && _video.Ready;
         public string VideoProblem => _video?.Problem;
         public AudioSource VideoAudio => _video?.Audio;
+        public UnityEngine.Video.VideoPlayer VideoPlayerNow => _video?.Player;
         public MapView Map => _map;
         public bool VideoPlaying => _video != null && _video.Player != null && _video.Player.isPlaying;
         public Texture VideoTexture => _video != null && _video.Ready ? _video.Texture : null;
