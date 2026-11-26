@@ -4,5 +4,6 @@
     <Compile Include="HeadUnitScreenTest.cs" />
     <Compile Include="../mods/HeadUnit/Crt.cs" />
     <Compile Include="../mods/HeadUnit/Screens.cs" />
+    <Compile Include="../mods/HeadUnit/YouTubeCheck.cs" />
   </ItemGroup>
 </Project>

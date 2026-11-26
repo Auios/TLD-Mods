@@ -250,13 +250,9 @@ namespace HeadUnit
                 m.ProgressLabel = f < 0f && c >= 0f ? "CONVERTING" : "LOADING";
             }
             else if (tools) m.Pane = ScreenModel.Window.Tools;
-            // the video plays nowhere while yt-dlp fails: SIGN IN where YouTube asks for it, else UPDATE, where the
-            // picture would be
-            else if (YtdlpFailed && SignIn.IsBotCheck(_video.Problem))
-            {
-                m.Pane = ScreenModel.Window.SignIn; m.SignedIn = Ytdlp.SignedIn;
-                _act["signin"] = () => Panel.Flash(Ytdlp.UseFirefoxLogin());
-            }
+            // the video plays nowhere while yt-dlp fails: where the picture would be, UPDATE, or what YouTube said
+            // when it refused this connection (a newer yt-dlp wouldn't help)
+            else if (YtdlpFailed && YouTubeCheck.Is(_video.Problem)) m.Pane = ScreenModel.Window.Refused;
             else if (YtdlpFailed) { m.Pane = ScreenModel.Window.Update; _act["update"] = Ytdlp.Update; }
             else if (pic) { m.Pane = ScreenModel.Window.Picture; content = _video.Texture; aspect = _video.Aspect; tint = true; }
             else if (_video.Problem != null) { m.Pane = ScreenModel.Window.Problem; m.Problem = _video.Problem; }
@@ -308,9 +304,7 @@ namespace HeadUnit
             m.IsLink = IsLink(text) || text.Trim().Length == 0;
             m.ResultsShown = results;
             // a link or search here failed in yt-dlp (an old one, mostly): updating it is offered here too
-            m.SignIn = LookupFailed && Ytdlp.ListBotCheck;   // YouTube asked to sign in: a newer yt-dlp wouldn't help
-            m.Update = LookupFailed && !m.SignIn;
-            if (m.SignIn) _act["signin"] = () => Panel.Flash(Ytdlp.UseFirefoxLogin());
+            m.Update = LookupFailed && !Ytdlp.ListBotCheck;   // YouTube refused this connection: a newer yt-dlp wouldn't help
             if (m.Update) _act["update"] = Ytdlp.Update;
             _act["done"] = CloseDialog;
             Action edit = () => { string w = State?.Searched ?? ""; OpenBar(w); _link = w; _linkSent = true; TypingInto = this; };
@@ -784,8 +778,8 @@ namespace HeadUnit
 
         public bool VideoReady => _video != null && _video.Ready;
         public string VideoProblem => _video?.Problem;
-        /// What the screen showed last: its view, and on MEDIA what fills the picture's window (Probe.SignInState).
-        public string PaneNow => _m.Screen == ScreenModel.View.Media ? "Media " + _m.Pane : _m.Screen == ScreenModel.View.Search ? (_m.SignIn ? "Search signin" : _m.Update ? "Search update" : "Search") : _m.Screen.ToString();
+        /// What the screen showed last: its view, and on MEDIA what fills the picture's window (Probe.Refused).
+        public string PaneNow => _m.Screen == ScreenModel.View.Media ? "Media " + _m.Pane : _m.Screen == ScreenModel.View.Search ? (_m.Update ? "Search update" : "Search") : _m.Screen.ToString();
         public AudioSource VideoAudio => _video?.Audio;
         public UnityEngine.Video.VideoPlayer VideoPlayerNow => _video?.Player;
         public MapView Map => _map;

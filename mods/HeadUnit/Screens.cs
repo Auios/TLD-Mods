@@ -9,7 +9,7 @@ namespace HeadUnit
     public sealed class ScreenModel
     {
         public enum View { Off, Wake, Radio, Media, Queue, Search, Tools, Nav, Tv }
-        public enum Window { Picture, Empty, Loading, Tools, Update, SignIn, Problem }
+        public enum Window { Picture, Empty, Loading, Tools, Update, Refused, Problem }
 
         public sealed class Row { public string Id, Lead, Text, Tail; public bool On, Mark; }
 
@@ -35,7 +35,6 @@ namespace HeadUnit
         public string Problem = "";
         public float Progress = -1f;
         public string ProgressLabel = "LOADING";
-        public bool SignedIn;                    // SignIn pane: a login was given and YouTube still asks
 
         // the queue, and a search's results
         public readonly List<Row> Rows = new List<Row>();
@@ -44,7 +43,7 @@ namespace HeadUnit
 
         // SEARCH
         public string Bar = "";
-        public bool Typing, Cursor, Searching, IsLink, Update, SignIn, ResultsShown;
+        public bool Typing, Cursor, Searching, IsLink, Update, ResultsShown;
 
         // the tools offer
         public string ToolsWhat = "", ToolsWhere = "", ToolsStatus = "";
@@ -60,9 +59,9 @@ namespace HeadUnit
             Screen = View.Off; Brand = ""; Tab = 0; Aimed = Pressed = Banner = null;
             RadioOn = Am = false; Freq = Station = ""; Unit = "MHZ"; Volume = 0; Stations.Clear(); StationsTop = StationsCount = 0;
             Title = ""; Track = "--/--"; Time = "--:--"; Playing = QueueEmpty = NeedsTools = CanTv = false; VideoVolume = 0;
-            Pane = Window.Picture; Problem = ""; Progress = -1f; ProgressLabel = "LOADING"; SignedIn = false;
+            Pane = Window.Picture; Problem = ""; Progress = -1f; ProgressLabel = "LOADING";
             Rows.Clear(); RowsTop = RowsCount = QueueCount = 0; Big = ClearArmed = false;
-            Bar = ""; Typing = Cursor = Searching = IsLink = Update = SignIn = ResultsShown = false;
+            Bar = ""; Typing = Cursor = Searching = IsLink = Update = ResultsShown = false;
             ToolsWhat = ToolsWhere = ToolsStatus = ""; ToolsDownloading = false;
             Scale = ""; North = 0; ZoomInMax = ZoomOutMax = false;
         }
@@ -80,11 +79,11 @@ namespace HeadUnit
                     Rows_(sb, Stations); break;
                 case View.Media:
                     sb.Append('|').Append(Title).Append('|').Append(Track).Append(Time).Append(Playing).Append(QueueEmpty).Append(NeedsTools).Append(CanTv).Append(VideoVolume)
-                      .Append((int)Pane).Append(Problem).Append(Progress.ToString("F2")).Append(ProgressLabel).Append(SignedIn); break;
+                      .Append((int)Pane).Append(Problem).Append(Progress.ToString("F2")).Append(ProgressLabel); break;
                 case View.Queue:
                     sb.Append('|').Append(RowsTop).Append('/').Append(RowsCount).Append('/').Append(QueueCount).Append(Big).Append(ClearArmed); Rows_(sb, Rows); break;
                 case View.Search:
-                    sb.Append('|').Append(Bar).Append('|').Append(Typing).Append(Cursor).Append(Searching).Append(IsLink).Append(Update).Append(SignIn).Append(ResultsShown)
+                    sb.Append('|').Append(Bar).Append('|').Append(Typing).Append(Cursor).Append(Searching).Append(IsLink).Append(Update).Append(ResultsShown)
                       .Append(RowsTop).Append('/').Append(RowsCount); Rows_(sb, Rows); break;
                 case View.Tools:
                     sb.Append('|').Append(ToolsWhat).Append('|').Append(ToolsWhere).Append('|').Append(ToolsStatus).Append(ToolsDownloading).Append(Progress.ToString("F2")); break;
@@ -337,11 +336,11 @@ namespace HeadUnit
                     c.TextCentred(cx, 120, "! CAN'T PLAY", 4, Crt.Full);
                     TextButton(m, c, l, "update", cx - 170, 180, 340, 84, "UPDATE YT-DLP", 4, on: true);
                     break;
-                case ScreenModel.Window.SignIn:
-                    // YouTube's "confirm you're not a bot": the player's own login (Ytdlp.UseFirefoxLogin)
-                    c.TextCentred(cx, 104, "! YOUTUBE: SIGN IN", 4, Crt.Full);
-                    c.TextCentred(cx, 146, m.SignedIn ? "LOGIN NOT ACCEPTED" : "YOUR LOGIN, THIS PC ONLY", 3, Crt.Dim);
-                    TextButton(m, c, l, "signin", cx - 200, 180, 400, 84, "USE FIREFOX LOGIN", 3, on: true);
+                case ScreenModel.Window.Refused:
+                    // YouTube's "confirm you're not a bot" for this connection (YouTubeCheck): a VPN, mostly
+                    c.TextCentred(cx, 110, "! YOUTUBE SAID NO", 4, Crt.Full);
+                    c.TextCentred(cx, 176, "USING A VPN?", 3, Crt.Full);
+                    c.TextCentred(cx, 210, "TRY THE GAME WITHOUT IT", 3, Crt.Dim);
                     break;
                 case ScreenModel.Window.Problem:
                     Wrap(c, wx + 24, wy + 40, ww - 48, m.Problem, 3, Crt.Dim, 6);
@@ -416,8 +415,7 @@ namespace HeadUnit
 
             var keys = new List<(string, string, Crt.Glyph, bool)> { ("paste", "PASTE", default, false) };
             keys.Add(("add", m.ResultsShown ? "EDIT" : m.IsLink ? "ADD" : "SEARCH", default, false));
-            if (m.SignIn) keys.Add(("signin", "SIGN IN", default, true));
-            else if (m.Update) keys.Add(("update", "UPDATE", default, true));
+            if (m.Update) keys.Add(("update", "UPDATE", default, true));
             keys.Add(("done", "DONE", default, false));
             Keys(m, c, l, keys);
         }

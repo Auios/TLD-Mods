@@ -33,7 +33,6 @@ namespace HeadUnit
         internal static ConfigEntry<int> MaxHeight;
         internal static ConfigEntry<bool> Convert;
         internal static ConfigEntry<bool> ColourPicture;
-        internal static ConfigEntry<string> SignInProfile;
 
         private void Awake()
         {
@@ -42,7 +41,6 @@ namespace HeadUnit
             MaxHeight = Config.Bind("Video", "Resolution", 720, new ConfigDescription("Highest video resolution to download (lines: 360, 480, 720 or 1080). Above 360 needs ffmpeg, offered with yt-dlp", new AcceptableValueRange<int>(144, 1080)));
             ColourPicture = Config.Bind("Screen", "ColourPicture", false, "Show the video in its own colours instead of in the screen's phosphor (this machine only)");
             Convert = Config.Bind("Video", "ConvertToVP8", false, "Convert each video to VP8 after downloading it: for Steam's own Proton, which has no H.264 decoder (turned on by itself the first time a video doesn't decode here; needs ffmpeg)");
-            SignInProfile = Config.Bind("YouTube", "SignIn", "", "Your own YouTube login, for when YouTube asks to sign in (\"confirm you're not a bot\"): the folder of a Firefox profile whose cookies yt-dlp sends (the screen's SIGN IN fills it in), or empty. A cookies.txt in BepInEx/config/HeadUnit is used when this is empty. This machine only: nothing passes to other players");
             Mod = MpApi.RegisterMod("headunit", "Head Unit", Version);
             StateType = MpApi.RegisterType(Mod, new UnitStateType());
             Ytdlp.Init(Paths.ConfigPath, Paths.CachePath);

@@ -52,15 +52,14 @@ middle of stays their own: the queue list, FULL, BIG.
 | `Nav.cs`, `MapView.cs` | Navigation: providers for things on the road ahead, and the map |
 | `Stations.cs` | Names for the game's radio stations |
 | `Glue.cs` | A unit glued anywhere: only the screen shows |
-| `SignIn.cs` | The player's own YouTube login for yt-dlp, when YouTube asks for one (no Unity) |
+| `YouTubeCheck.cs` | Tells YouTube refusing this connection apart from an old yt-dlp (no Unity) |
 | `Probe.cs` | Checks for `tools/headunit.py`, called through RevaMP's debug bridge |
 
 ## Settings
 
 `BepInEx/config/tldrevamp.headunit.cfg`, section `[Video]`: `Volume` (this machine only), `Resolution` (above 360
 needs ffmpeg), `ConvertToVP8` (for Steam's own Proton, which can't decode H.264; turns itself on when needed); section
-`[Screen]`: `ColourPicture` (the video in its own colours rather than in the screen's phosphor; this machine only);
-section `[YouTube]`: `SignIn` (below).
+`[Screen]`: `ColourPicture` (the video in its own colours rather than in the screen's phosphor; this machine only).
 
 Videos are streamed through a temporary file in `BepInEx/cache/HeadUnit`, because the game's video player can't
 open YouTube's address under Proton. That file is not a library: it is deleted as soon as no unit nearby plays it or
@@ -79,21 +78,10 @@ soon as they arrive. When yt-dlp fails (usually because it is old and YouTube ha
 yt-dlp and checks it the same way: on the MEDIA tab in place of FULL while the video playing fails, and in the + ADD
 dialog after a link or search fails.
 
-## When YouTube asks to sign in
+## When YouTube says no
 
 YouTube answers some connections with "Sign in to confirm you're not a bot" instead of the video: VPNs above all (a
-VPN server's address is shared by many people), also shared or very busy lines. On a VPN, leaving the game out of it
-(split tunneling: Mullvad's `mullvad-exclude`, or the app list in most VPN apps) is the simplest fix. Otherwise the
-screen shows SIGN IN where the picture would be (and in the + ADD dialog after a link fails that way). It uses your own
-login, the one YouTube asks for:
-
-- **Firefox** (or LibreWolf, Zen): be signed in to YouTube there, then press USE FIREFOX LOGIN. The unit picks the
-  profile you used last and yt-dlp reads its cookies on each video, so it stays signed in as long as the browser does.
-  Under Proton this is your Linux Firefox. Its folder is kept in `[YouTube] SignIn`; empty it to sign out.
-- **Any other browser**: export your youtube.com cookies as a `cookies.txt` (Netscape format, from a cookie-export
-  extension) into `BepInEx/config/HeadUnit`. Chrome and Edge on Windows lock their own cookies away from other
-  programs, so this is the way for them. YouTube replaces the cookies of an open YouTube tab now and then: export them
-  from a private window you then close, or export again when SIGN IN comes back.
-
-The login stays on your machine: it goes only to YouTube, through yt-dlp, never to other players. YouTube may limit an
-account it sees fetching many videos this way; a second Google account is the careful choice.
+VPN server's address is shared by many people), also shared or very busy lines. A newer yt-dlp doesn't change that, so
+the screen says "YOUTUBE SAID NO" where the picture would be (and the + ADD dialog says so after a link fails that
+way) instead of offering UPDATE. On a VPN, playing without it, or leaving the game out of it (split tunneling: most VPN
+apps have a list of apps that skip the VPN), lets the videos through.

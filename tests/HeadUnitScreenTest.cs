@@ -31,6 +31,9 @@ static class HeadUnitScreenTest
         Check(Crt.Missing("abc|\"&#!?[]{}<>çğıöşü—–’“”") == "", "the characters today's test checks all draw: " + Crt.Missing("abc|\"&#!?[]{}<>çğıöşü—–’“”"));
         Check(Crt.Missing("夜") == "夜", "what can't be spelled is reported");
         Check(Crt.Measure("93.0", 12) < Crt.Measure("9300", 12), "the point is narrower than a digit");
+        Check(YouTubeCheck.Is("ERROR: [youtube] 3BFTio5296w: Sign in to confirm you’re not a bot. This helps protect our community."), "YouTube's check, curly apostrophe");
+        Check(YouTubeCheck.Is("ERROR: [youtube] x: Sign in to confirm you're not a bot"), "YouTube's check, plain apostrophe");
+        Check(!YouTubeCheck.Is("ERROR: Requested format is not available") && !YouTubeCheck.Is("ERROR: [youtube] x: Video unavailable") && !YouTubeCheck.Is(null), "other errors aren't the check");
     }
 
     static ScreenModel Base(ScreenModel.View v, int tab, (byte, byte, byte) ph = default, string brand = "VOLTLINE DH-1")
@@ -82,10 +85,8 @@ static class HeadUnitScreenTest
         var upd = Base(ScreenModel.View.Media, 1); upd.Title = "Desert Highway — Night Drive Mix"; upd.Track = "04/12"; upd.VideoVolume = 7; upd.Pane = ScreenModel.Window.Update;
         yield return ("media_update", upd);
 
-        var sign = Base(ScreenModel.View.Media, 1); sign.Title = "Desert Highway — Night Drive Mix"; sign.Track = "04/12"; sign.VideoVolume = 7; sign.Pane = ScreenModel.Window.SignIn;
-        yield return ("media_signin", sign);
-        var refused = Base(ScreenModel.View.Media, 1, Amber); refused.Title = "Desert Highway — Night Drive Mix"; refused.Track = "04/12"; refused.Pane = ScreenModel.Window.SignIn; refused.SignedIn = true;
-        yield return ("media_signin_refused_amber", refused);
+        var refused = Base(ScreenModel.View.Media, 1); refused.Title = "Desert Highway — Night Drive Mix"; refused.Track = "04/12"; refused.VideoVolume = 7; refused.Pane = ScreenModel.Window.Refused;
+        yield return ("media_refused", refused);
 
         var tools = Base(ScreenModel.View.Media, 1); tools.Title = "Desert Highway — Night Drive Mix"; tools.Track = "04/12"; tools.NeedsTools = true; tools.Pane = ScreenModel.Window.Tools;
         yield return ("media_tools", tools);
@@ -110,8 +111,8 @@ static class HeadUnitScreenTest
         var link = Base(ScreenModel.View.Search, 1); link.Bar = "https://www.youtube.com/watch?v=jNQXAC9IVRw&list=PL1234567890"; link.IsLink = true; link.Update = true; link.Banner = "yt-dlp: that video isn't available";
         yield return ("search_link_update", link);
 
-        var asked = Base(ScreenModel.View.Search, 1); asked.Bar = "https://youtu.be/5SZYz7lZRRI"; asked.IsLink = true; asked.SignIn = true; asked.Banner = "yt-dlp: Sign in to confirm you're not a bot";
-        yield return ("search_link_signin", asked);
+        var asked = Base(ScreenModel.View.Search, 1); asked.Bar = "https://youtu.be/5SZYz7lZRRI"; asked.IsLink = true; asked.Banner = YouTubeCheck.Text;
+        yield return ("search_link_refused", asked);
 
         var offer = Base(ScreenModel.View.Tools, 1); offer.ToolsWhat = "GET YT-DLP, DENO, FFMPEG"; offer.ToolsWhere = "GITHUB  140 MB";
         yield return ("tools_offer", offer);
@@ -168,8 +169,8 @@ static class HeadUnitScreenTest
         if (m.Screen == ScreenModel.View.Media && !m.QueueEmpty) foreach (var id in new[] { "prev", "play", "next", "list", "vol-", "vol+" }) Check(ids.Contains(id), $"{name}: has {id}");
         if (m.Screen == ScreenModel.View.Media && m.CanTv) Check(ids.Contains("full"), $"{name}: has full");
         if (m.Screen == ScreenModel.View.Search && m.ResultsShown) foreach (var id in new[] { "r0", "done" }) Check(ids.Contains(id), $"{name}: has {id}");
-        if (m.Pane == ScreenModel.Window.SignIn && m.Screen == ScreenModel.View.Media) Check(ids.Contains("signin") && !ids.Contains("update"), $"{name}: SIGN IN, not UPDATE");
-        if (m.Screen == ScreenModel.View.Search && m.SignIn) Check(ids.Contains("signin") && !ids.Contains("update"), $"{name}: SIGN IN in place of UPDATE");
+        if (m.Pane == ScreenModel.Window.Refused && m.Screen == ScreenModel.View.Media) Check(!ids.Contains("update"), $"{name}: no UPDATE when YouTube refused the connection");
+        if (m.Banner == YouTubeCheck.Text) Check(crt.Texts.Contains(Crt.Plain(YouTubeCheck.Text)), $"{name}: the whole refusal line fits the banner");
         if (m.Screen == ScreenModel.View.Nav) foreach (var id in new[] { "zoom-", "zoom+" }) Check(ids.Contains(id), $"{name}: has {id}");
 
         var rgba = new byte[Crt.W * Crt.H * 4];

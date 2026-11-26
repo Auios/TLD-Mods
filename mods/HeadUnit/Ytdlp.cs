@@ -71,7 +71,7 @@ namespace HeadUnit
         private static void ToolsChanged() { ToolsVersion++; PrefetchFailed.Clear(); ListFailed = ListBotCheck = false; }
         /// The last link or search looked up (List) failed in yt-dlp: the + ADD dialog offers UPDATE.
         public static bool ListFailed;
-        /// ...because YouTube asked to sign in (SignIn.IsBotCheck): the dialog offers SIGN IN instead.
+        /// ...because YouTube refused this connection (YouTubeCheck): UPDATE wouldn't help, so it isn't offered.
         public static bool ListBotCheck;
 
         private static readonly ConcurrentQueue<Action> MainThread = new ConcurrentQueue<Action>();
@@ -96,7 +96,6 @@ namespace HeadUnit
             FfmpegDir = Path.Combine(Dir, "ffmpeg");
             Ffmpeg = Path.Combine(FfmpegDir, "ffmpeg.exe");
             CleanOldYtdlp();
-            DropCookieCopies();   // what a crash left
             CacheDir = Path.Combine(cacheDir, "HeadUnit");
             Directory.CreateDirectory(CacheDir);
             Clear();   // what an earlier game left (a crash, or a file the player still held when it closed)
@@ -148,11 +147,11 @@ namespace HeadUnit
         {
             if (!Present) { Status = "yt-dlp is not installed"; done(null); return; }
             var args = "--flat-playlist --playlist-end 100 --no-warnings --print \"%(id)s\t%(title)s\t%(duration)s\" \"" + link + "\"";
-            RunSignedIn(args, 60000, (code, outp, err) =>
+            Run(args, 60000, (code, outp, err) =>
             {
                 ListFailed = code != 0;
-                ListBotCheck = code != 0 && SignIn.IsBotCheck(err);
-                if (code != 0) { Status = "yt-dlp: " + FirstLine(err); done(null); return; }
+                ListBotCheck = code != 0 && YouTubeCheck.Is(err);
+                if (code != 0) { Status = ListBotCheck ? YouTubeCheck.Text : "yt-dlp: " + FirstLine(err); done(null); return; }
                 var list = new List<Entry>();
                 foreach (var line in outp.Split('\n'))
                 {
@@ -210,7 +209,7 @@ namespace HeadUnit
                 string ff = merge ? $"--ffmpeg-location \"{FfmpegDir}\" --merge-output-format mp4 " : "";
                 string args = $"--ignore-config -f \"{fmt}\" -o \"{outTemplate}\" --no-playlist --no-warnings --no-update --newline --progress-template \"download:%(progress._percent_str)s\" "
                     + $"--js-runtimes \"deno:{Deno}\" {ff}{extra}\"https://www.youtube.com/watch?v={videoId}\"";
-                RunSignedIn(args, 20 * 60000, (code, outp, err) =>
+                Run(args, 20 * 60000, (code, outp, err) =>
                 {
                     if (code != 0 || !File.Exists(file))
                     {
@@ -356,52 +355,6 @@ namespace HeadUnit
         private static void Run(string args, int timeoutMs, Action<int, string, string> done, Action<string> line = null) =>
             Run(Exe, "--encoding utf-8 " + args, timeoutMs, done, line, Utf8);
 
-        /// A yt-dlp run that asks YouTube, with the player's sign-in if they gave one (SignIn.cs): the Firefox profile
-        /// in the config, else BepInEx/config/HeadUnit/cookies.txt (a copy per run: yt-dlp writes the file back as it
-        /// ends, and two runs at once would tear it).
-        private static void RunSignedIn(string args, int timeoutMs, Action<int, string, string> done, Action<string> line = null)
-        {
-            string profile = Plugin.SignInProfile.Value, copy = null;
-            if (!SignIn.UsableProfile(profile))
-            {
-                profile = null;
-                string txt = Path.Combine(Dir, SignIn.CookiesTxt);
-                if (File.Exists(txt))
-                    try { copy = Path.Combine(Dir, "cookies-run-" + Guid.NewGuid().ToString("N") + ".txt"); File.Copy(txt, copy); }
-                    catch (Exception e) { Plugin.Log.LogWarning("cookies.txt not read: " + e.Message); copy = null; }
-            }
-            Run(SignIn.Args(profile, copy) + args, timeoutMs, (code, outp, err) =>
-            {
-                if (copy != null) try { File.Delete(copy); } catch { }
-                done(code, outp, err);
-            }, line);
-        }
-
-        /// The player signed in for YouTube on this machine (SignIn.cs).
-        public static bool SignedIn => SignIn.UsableProfile(Plugin.SignInProfile.Value) || (Dir != null && File.Exists(Path.Combine(Dir, SignIn.CookiesTxt)));
-
-        /// Where SIGN IN looks for a Firefox profile instead (';' between folders): tools/headunit.py points it at a
-        /// made-up profile, never at the machine's own browser.
-        public static string ProfileRoots;   // runtime switch (bridge set HeadUnit.Ytdlp.ProfileRoots)
-
-        /// SIGN IN (the player pressed it, so agreed): the Firefox login used last on this machine becomes yt-dlp's,
-        /// and what failed for want of it is tried again. What happened, for the screen's banner.
-        public static string UseFirefoxLogin()
-        {
-            var roots = ProfileRoots != null ? new List<string>(ProfileRoots.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
-                : SignIn.FirefoxRoots(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), SignIn.WineHome(Environment.GetEnvironmentVariable));
-            string found = SignIn.NewestProfile(roots);
-            if (found == null)
-            {
-                Plugin.Log.LogInfo($"sign-in: no Firefox profile in {roots.Count} places");   // not the paths: the player's name is in them
-                return File.Exists(Path.Combine(Dir, SignIn.CookiesTxt)) ? "no Firefox login found: using cookies.txt" : "no Firefox login found: see the README (cookies.txt)";
-            }
-            Plugin.SignInProfile.Value = found;
-            Plugin.Log.LogInfo("sign-in: yt-dlp uses the Firefox profile " + Path.GetFileName(found));
-            ToolsChanged();
-            return "signed in with Firefox (this PC only)";
-        }
-
         /// The programs running now (yt-dlp, ffmpeg): ended with the game (KillAll), not left converting after it.
         private static readonly ConcurrentDictionary<int, Process> Running = new ConcurrentDictionary<int, Process>();
 
@@ -466,19 +419,13 @@ namespace HeadUnit
             try { if (!p.HasExited) p.Kill(); } catch { }
         }
 
-        /// The game is closing: every program still running ends with it, and the copies of the player's cookies.txt
-        /// the runs it ended had (RunSignedIn) go with them.
-        public static void KillAll() { foreach (var p in Running.Values) KillTree(p); DropCookieCopies(); }
-
-        private static void DropCookieCopies()
-        {
-            try { foreach (var f in Directory.GetFiles(Dir, "cookies-run-*.txt")) try { File.Delete(f); } catch { } } catch { }
-        }
+        /// The game is closing: every program still running ends with it.
+        public static void KillAll() { foreach (var p in Running.Values) KillTree(p); }
 
         internal static string FirstLine(string s)
         {
             if (string.IsNullOrEmpty(s)) return "";
-            // yt-dlp's ERROR line first: with a sign-in, "Extracting cookies from firefox" comes before it
+            // yt-dlp's ERROR line first: what it prints before an error (its warnings) says less
             string first = null;
             foreach (var l in s.Split('\n'))
             {
