@@ -55,6 +55,15 @@ namespace HeadUnit
         private readonly Queue<float> _catchUps = new Queue<float>();
         private float _catchAt = -100f, _catchTo;
 
+        /// Picture and sound fall out of step when the player starts while the game hitches (a save loading: playtest
+        /// 2026-11-27) or misses a long frame while it plays: its clock stays right, so the sync above sees nothing, and a
+        /// seek (|< did it) puts both back together. So: one seek ResyncAfterS after the player starts, and one after a
+        /// frame longer than HitchS, at most one every ResyncGapS (repeated seeks once crashed Proton's media framework).
+        public static readonly float ResyncAfterS = 1.5f, HitchS = 0.25f, ResyncGapS = 20f;
+        private float _resyncAt = -1f, _resyncedAt = -100f;
+        /// Resync seeks made (Probe; headunit.py).
+        public static int Resyncs;
+
         // The audio clock: where it stands still (no sound device, as Wine can have none; a stalled mixer) a player on it
         // stands still too. New players take unscaled game time then. Read every frame a video follows.
         private static double _dspSeen = -1; private static float _dspSeenAt;
@@ -412,7 +421,19 @@ namespace HeadUnit
                 if (Mathf.Abs((float)Player.time - want) > 0.2f) SeekTo(want);
                 return;
             }
-            if (!Player.isPlaying) { SeekTo(want, force: true); Player.Play(); return; }
+            if (!Player.isPlaying) { SeekTo(want, force: true); Player.Play(); _resyncAt = Time.realtimeSinceStartup + ResyncAfterS; return; }
+            float rt = Time.realtimeSinceStartup;
+            if (Time.unscaledDeltaTime > HitchS) _resyncAt = rt + ResyncAfterS;   // settled again by then
+            if (_resyncAt > 0f && rt >= _resyncAt)
+            {
+                _resyncAt = -1f;
+                if (rt - _resyncedAt >= ResyncGapS && SeekTo(want, force: true))
+                {
+                    _resyncedAt = rt; Resyncs++;
+                    if (Trace) Plugin.Log.LogInfo($"video resync {VideoId} at {want:F2}");
+                }
+                return;
+            }
             if (Time.realtimeSinceStartup < _nextCheck) return;
             _nextCheck = Time.realtimeSinceStartup + 0.25f;
             _ = AudioClockRunning;
@@ -447,6 +468,6 @@ namespace HeadUnit
         public void Dispose() => Drop();
 
         /// The current player as the media framework reports it (Probe).
-        public string Describe() => Player == null ? "no player" : $"{VideoId}: length {Player.length:F1}, frames {Player.frameCount} at {Player.frameRate:F1}/s, time {Player.time:F1}, frame {Player.frame}, playing {Player.isPlaying}, prepared {Player.isPrepared}";
+        public string Describe() => Player == null ? "no player" : $"{VideoId}: length {Player.length:F1}, frames {Player.frameCount} at {Player.frameRate:F1}/s, time {Player.time:F1}, frame {Player.frame}, playing {Player.isPlaying}, prepared {Player.isPrepared}, resyncs {Resyncs}";
     }
 }
