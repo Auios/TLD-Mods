@@ -32,14 +32,16 @@ namespace HeadUnit
         internal static ConfigEntry<float> VideoVolume;
         internal static ConfigEntry<int> MaxHeight;
         internal static ConfigEntry<bool> Convert;
-        internal static ConfigEntry<bool> ColourPicture;
+        internal static ConfigEntry<bool> PhosphorPicture;
 
         private void Awake()
         {
             Log = Logger;
             VideoVolume = Config.Bind("Video", "Volume", 0.5f, new ConfigDescription("Video loudness on this machine (the head unit's VOL buttons): each player sets their own", new AcceptableValueRange<float>(0f, 1f)));
             MaxHeight = Config.Bind("Video", "Resolution", 720, new ConfigDescription("Highest video resolution to download (lines: 360, 480, 720 or 1080). Above 360 needs ffmpeg, offered with yt-dlp", new AcceptableValueRange<int>(144, 1080)));
-            ColourPicture = Config.Bind("Screen", "ColourPicture", false, "Show the video in its own colours instead of in the screen's phosphor (this machine only)");
+            // a new key: the old ColourPicture (false, the phosphor picture, written into every existing config) would have
+            // kept the tint players found too strong (playtest 2026-11-27)
+            PhosphorPicture = Config.Bind("Screen", "PhosphorPicture", false, "Show the video in the screen's phosphor colour with scanlines, like the rest of the screen, instead of in its own colours (this machine only)");
             Convert = Config.Bind("Video", "ConvertToVP8", false, "Convert each video to VP8 after downloading it: for Steam's own Proton, which has no H.264 decoder (turned on by itself the first time a video doesn't decode here; needs ffmpeg)");
             Mod = MpApi.RegisterMod("headunit", "Head Unit", Version);
             StateType = MpApi.RegisterType(Mod, new UnitStateType());

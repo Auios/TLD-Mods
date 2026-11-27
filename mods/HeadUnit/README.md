@@ -5,7 +5,7 @@ A digital head unit for a car's radio slot, and the main example of TLD RevaMP's
 In the game: rare loot in a few models, each fitting only some cars. The game's radio keeps working inside it. Its
 touch screen (look at a box and click, as with the game's knobs) is drawn as an old monochrome CRT: one phosphor colour
 per model (the DH-1 ice blue, the DH-2 Wide green, the RX Pro amber), one blocky font, a box around everything that can
-be touched, inverse for what is on, a dither under the crosshair. It has three tabs down the driver's side: the radio,
+be touched, inverse for what is on, a dither under the crosshair; the video in its own colours. It has three tabs down the driver's side: the radio,
 YouTube with a queue, and navigation (a map of the roads around the car and the road ahead). A unit can also be glued
 anywhere in the car, like any item. In a session, everyone in or near the car sees the same video at the same moment,
 and the same screen: whoever switches to RADIO, MEDIA or NAV, zooms the map, or opens + ADD, types in its bar,
@@ -59,7 +59,8 @@ middle of stays their own: the queue list, FULL, BIG.
 
 `BepInEx/config/tldrevamp.headunit.cfg`, section `[Video]`: `Volume` (this machine only), `Resolution` (above 360
 needs ffmpeg), `ConvertToVP8` (for Steam's own Proton, which can't decode H.264; turns itself on when needed); section
-`[Screen]`: `ColourPicture` (the video in its own colours rather than in the screen's phosphor; this machine only).
+`[Screen]`: `PhosphorPicture` (the video in the screen's phosphor colour with scanlines, like the rest of the screen,
+instead of its own colours; this machine only).
 
 Videos are streamed through a temporary file in `BepInEx/cache/HeadUnit`, because the game's video player can't
 open YouTube's address under Proton. That file is not a library: it is deleted as soon as no unit nearby plays it or

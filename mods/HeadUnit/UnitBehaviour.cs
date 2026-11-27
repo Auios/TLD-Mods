@@ -177,7 +177,7 @@ namespace HeadUnit
             }
             if (Touch.Looked == Touch && Touch.LookedButton != null) m.Aimed = Touch.LookedButton.Id;
             if (now - Touch.PressedAt < PressedS) m.Pressed = Touch.PressedId;
-            Touch.Present(m, content, aspect, tint && !Plugin.ColourPicture.Value, _act);
+            Touch.Present(m, content, aspect, tint && Plugin.PhosphorPicture.Value, _act);
         }
 
         private void RadioScreen(ScreenModel m, bool radioOn)
